@@ -363,6 +363,9 @@ function parseMrzName(nameZone) {
   const zone = String(nameZone || "")
     .toUpperCase()
     .replace(/[^A-Z<]/g, "<")
+    .replace(/S{2,}/g, "<<")
+    .replace(/L{3,}/g, "<<")
+    .replace(/K{3,}/g, "<<")
     .replace(/<{3,}/g, "<<");
 
   const separatorIndex = zone.indexOf("<<");
