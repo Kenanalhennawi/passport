@@ -1,4 +1,5 @@
 import { preprocessImageForOcr } from "./image-processor.js";
+import { classifyDocument } from "./document-classifier.js";
 
 export async function readVisaDocument(file, onProgress = () => {}) {
   onProgress(0.02);
@@ -7,14 +8,16 @@ export async function readVisaDocument(file, onProgress = () => {}) {
   onProgress(0.10);
 
   const ocrText = await runLocalOcr(processedImage, (p) => onProgress(0.10 + p * 0.85));
-  const documentType = detectDocumentType(ocrText);
-  const data = parseUniversalDocument(ocrText, documentType);
+  const classification = classifyDocument(ocrText);
+  const documentType = classification.type;
+  const data = parseUniversalDocument(ocrText, documentType, classification);
 
   onProgress(1);
 
   return {
     type: "secondary_document",
     documentType,
+    classification,
     data,
     rawText: ocrText
   };
@@ -34,7 +37,7 @@ async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
   return result?.data?.text || "";
 }
 
-function parseUniversalDocument(text, documentType) {
+function parseUniversalDocument(text, documentType, classification) {
   const lines = getCleanLines(text);
   const flatText = lines.join("\n");
 
@@ -55,20 +58,24 @@ function parseUniversalDocument(text, documentType) {
     "PRÉNOMS"
   ]);
 
- const detectedFullName = findLabeledValue(lines, [
-  "FULL NAME",
-  "NAME OF HOLDER",
-  "HOLDER"
-]);
+  const detectedFullName = findLabeledValue(lines, [
+    "FULL NAME",
+    "NAME OF HOLDER",
+    "HOLDER"
+  ]);
 
-const fullName = givenNames && surname
-  ? `${givenNames} ${surname}`.trim()
-  : detectedFullName;
+  const fullName = givenNames && surname
+    ? `${givenNames} ${surname}`.trim()
+    : detectedFullName;
 
   return {
     documentType,
+    classificationType: documentType,
+    classificationConfidence: `${classification.confidence}%`,
+    documentCategory: determineCategory(documentType),
 
     documentNumber: findDocumentNumber(lines, flatText),
+
     visaNumber: findByPatterns(flatText, [
       /VISA\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,20})/i,
       /VAF\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,20})/i
@@ -84,7 +91,8 @@ const fullName = givenNames && surname
     ]),
 
     uci: findByPatterns(flatText, [
-      /\bUCI\s*[:\-]?\s*([A-Z0-9]{5,20})/i
+      /\bUCI\s*[:\-]?\s*([A-Z0-9]{5,20})/i,
+      /\bUC\s*[:\-]?\s*([A-Z0-9]{5,20})/i
     ]),
 
     surname,
@@ -139,10 +147,30 @@ const fullName = givenNames && surname
       "NUMBER OF ENTRIES"
     ]),
 
+    durationOfStay: findLabeledValue(lines, [
+      "DURATION OF STAY",
+      "DURATION"
+    ]),
+
+    validFrom: findDateByLabels(lines, [
+      "VALID FROM",
+      "FROM"
+    ]),
+
+    validUntil: findDateByLabels(lines, [
+      "VALID UNTIL",
+      "VALID TO",
+      "UNTIL"
+    ]),
+
     issuingCountry: detectIssuingCountry(text),
 
+    matchedClassificationKeywords: Array.isArray(classification.matchedKeywords)
+      ? classification.matchedKeywords.join(", ")
+      : "",
+
     confidenceScore: text
-      ? "OCR detected text. Field extraction uses line-based parsing."
+      ? "OCR detected text. Field extraction uses line-based parsing and document classification."
       : "OCR library unavailable or no text detected."
   };
 }
@@ -158,25 +186,30 @@ function getCleanLines(text) {
     .filter(Boolean);
 }
 
-function detectDocumentType(text) {
-  const value = stripAccents(String(text || "")).toUpperCase();
+function determineCategory(documentType) {
+  const type = String(documentType || "");
 
-  if (value.includes("REFUGEE PROTECTION CLAIMANT DOCUMENT")) return "Refugee Protection Claimant Document";
-  if (value.includes("REFUGEE TRAVEL DOCUMENT")) return "Refugee Travel Document";
-  if (value.includes("PERMANENT RESIDENT") || value.includes("PR CARD")) return "Permanent Resident Card";
-  if (value.includes("GREEN CARD")) return "Permanent Resident Card";
-  if (value.includes("RESIDENCE PERMIT") || value.includes("RESIDENCE CARD")) return "Residence Permit / Residence Card";
-  if (value.includes("RESIDENCE VISA")) return "Residence Visa";
-  if (value.includes("ENTRY PERMIT")) return "Entry Permit";
-  if (value.includes("WORK PERMIT")) return "Work Permit";
-  if (value.includes("STUDY PERMIT") || value.includes("STUDENT PERMIT")) return "Study Permit";
-  if (value.includes("EMIRATES ID")) return "Emirates ID";
-  if (value.includes("CIVIL ID")) return "Civil ID";
-  if (value.includes("SCHENGEN")) return "Schengen Visa";
-  if (value.includes("VISA")) return "Visa";
-  if (value.includes("TRAVEL DOCUMENT")) return "Travel Document";
+  if (type.includes("Passport") || type.includes("Travel Document")) {
+    return "Primary Travel Document";
+  }
 
-  return "Unknown Travel / Immigration Document";
+  if (type.includes("Visa") || type.includes("Permit")) {
+    return "Immigration Authorization";
+  }
+
+  if (type.includes("Resident") || type.includes("Residence")) {
+    return "Residence Document";
+  }
+
+  if (type.includes("ID") || type.includes("Identity")) {
+    return "Identity Document";
+  }
+
+  if (type.includes("Refugee Protection Claimant")) {
+    return "Immigration / Protection Document";
+  }
+
+  return "Other";
 }
 
 function findLabeledValue(lines, labels) {
@@ -230,6 +263,7 @@ function findDateByLabels(lines, labels) {
 
         for (let offset = 1; offset <= 2; offset += 1) {
           const next = lines[i + offset] || "";
+
           if (looksLikeLabelLine(next)) break;
 
           const nextDate = extractDate(next);
@@ -248,7 +282,8 @@ function findDocumentNumber(lines, flatText) {
     "DOCUMENT NUMBER",
     "DOC NO",
     "CARD NO",
-    "PERMIT NO"
+    "PERMIT NO",
+    "ID NUMBER"
   ]);
 
   if (labeled && /^[A-Z0-9]{5,25}$/.test(labeled.replace(/\s/g, ""))) {
@@ -284,7 +319,7 @@ function findAllByPattern(text, pattern) {
 function looksLikeLabelLine(line) {
   const value = String(line || "").toUpperCase();
 
-  return /^(FAMILY NAME|SURNAME|GIVEN NAME|GIVEN NAMES|DATE OF BIRTH|DOB|SEX|GENDER|COUNTRY OF BIRTH|COUNTRY OF CITIZENSHIP|NATIONALITY|DATE ISSUED|ISSUE DATE|EXPIRY DATE|EXPIRATION DATE|APPLICATION NO|UCI|DOCUMENT NO|PASSPORT NO|VISA NO|ADDITIONAL INFORMATION|CLIENT INFORMATION)\b/.test(value);
+  return /^(FAMILY NAME|SURNAME|GIVEN NAME|GIVEN NAMES|DATE OF BIRTH|DOB|SEX|GENDER|COUNTRY OF BIRTH|COUNTRY OF CITIZENSHIP|NATIONALITY|DATE ISSUED|ISSUE DATE|EXPIRY DATE|EXPIRATION DATE|APPLICATION NO|UCI|DOCUMENT NO|PASSPORT NO|VISA NO|ADDITIONAL INFORMATION|CLIENT INFORMATION|VALID FROM|VALID UNTIL|DURATION OF STAY|ENTRIES)\b/.test(value);
 }
 
 function isUsefulFieldValue(value) {
@@ -335,7 +370,7 @@ function cleanName(value) {
   return stripAccents(String(value || ""))
     .toUpperCase()
     .replace(/[^A-Z\s'-]/g, " ")
-    .replace(/\b(FAMILY|SURNAME|GIVEN|NAME|NAMES|FIRST|LAST|DATE|BIRTH|SEX|COUNTRY|CITIZENSHIP|NATIONALITY)\b/g, " ")
+    .replace(/\b(FAMILY|SURNAME|GIVEN|NAME|NAMES|FIRST|LAST|DATE|BIRTH|SEX|COUNTRY|CITIZENSHIP|NATIONALITY|VALID|UNTIL|FROM|EXPIRY|ISSUE)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -344,7 +379,7 @@ function cleanCountry(value) {
   return stripAccents(String(value || ""))
     .toUpperCase()
     .replace(/[^A-Z\s]/g, " ")
-    .replace(/\b(DATE|ISSUED|ISSUE|EXPIRY|EXPIRATION|COUNTRY|CITIZENSHIP|BIRTH|NATIONALITY)\b/g, " ")
+    .replace(/\b(DATE|ISSUED|ISSUE|EXPIRY|EXPIRATION|COUNTRY|CITIZENSHIP|BIRTH|NATIONALITY|VALID|UNTIL|FROM)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
