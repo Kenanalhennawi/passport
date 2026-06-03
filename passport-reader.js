@@ -9,16 +9,16 @@ export async function readPassport(file, onProgress = () => {}) {
   const mrzImage = await cropMrzZone(file);
   onProgress(0.14);
 
-  const mrzText = await runLocalOcr(mrzImage, (p) => onProgress(0.14 + p * 0.50));
-  const fullText = await runLocalOcr(fullImage, (p) => onProgress(0.64 + p * 0.30));
+  const mrzText = await runLocalOcr(mrzImage, (p) => onProgress(0.14 + p * 0.55));
+  const fullText = await runLocalOcr(fullImage, (p) => onProgress(0.69 + p * 0.25));
 
-  const mrzCandidates = [
+  const candidates = [
     ...extractMrzCandidates(mrzText),
     ...extractMrzCandidates(fullText)
   ];
 
-  const bestMrz = selectBestMrz(mrzCandidates);
-  const data = parseTravelDocument(bestMrz, fullText);
+  const best = selectBestMrz(candidates);
+  const data = parseTravelDocument(best, fullText);
 
   onProgress(1);
 
@@ -27,7 +27,7 @@ export async function readPassport(file, onProgress = () => {}) {
     data,
     rawText: fullText,
     mrzText,
-    mrz: bestMrz
+    mrz: best ? best.lines : []
   };
 }
 
@@ -38,9 +38,7 @@ async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
     tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<",
     preserve_interword_spaces: "0",
     logger: (m) => {
-      if (m.status === "recognizing text") {
-        onProgress(m.progress || 0);
-      }
+      if (m.status === "recognizing text") onProgress(m.progress || 0);
     }
   });
 
@@ -54,23 +52,12 @@ async function cropMrzZone(file) {
 
   const cropY = Math.floor(image.height * 0.58);
   const cropHeight = image.height - cropY;
-  const scale = 2.8;
+  const scale = 3;
 
   canvas.width = Math.floor(image.width * scale);
   canvas.height = Math.floor(cropHeight * scale);
 
-  ctx.drawImage(
-    image,
-    0,
-    cropY,
-    image.width,
-    cropHeight,
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  );
-
+  ctx.drawImage(image, 0, cropY, image.width, cropHeight, 0, 0, canvas.width, canvas.height);
   enhanceForMrz(ctx, canvas.width, canvas.height);
 
   return canvas.toDataURL("image/png", 1);
@@ -106,10 +93,10 @@ function enhanceForMrz(ctx, width, height) {
 
   for (let i = 0; i < data.length; i += 4) {
     const grey = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-    let value = (grey - 128) * 1.65 + 128;
+    let value = (grey - 128) * 1.75 + 128;
 
-    if (value > 168) value = 255;
-    if (value < 92) value = 0;
+    if (value > 170) value = 255;
+    if (value < 90) value = 0;
 
     data[i] = clamp(value);
     data[i + 1] = clamp(value);
@@ -129,46 +116,42 @@ function extractMrzCandidates(text) {
   const candidates = [];
 
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
+    const current = lines[i] || "";
+    const next = lines[i + 1] || "";
+    const third = lines[i + 2] || "";
 
-    if (looksLikeTd3Line1(line) && lines[i + 1]) {
-      const line1 = fixMrzLine(lines[i], 44);
-      const line2 = fixMrzLine(lines[i + 1], 44);
+    const td3Line1 = normalizeMrzLine(current, 44);
+    const td3Line2 = normalizeMrzLine(next, 44);
 
-      if (looksLikeTd3Pair(line1, line2)) {
-        candidates.push({
-          format: "TD3",
-          lines: [line1, line2],
-          score: scoreTd3(line1, line2)
-        });
-      }
+    if (looksLikeTd3Pair(td3Line1, td3Line2)) {
+      candidates.push({
+        format: "TD3",
+        lines: [td3Line1, td3Line2],
+        score: scoreTd3(td3Line1, td3Line2)
+      });
     }
 
-    if (looksLikeTd1Line1(line) && lines[i + 1] && lines[i + 2]) {
-      const line1 = fixMrzLine(lines[i], 30);
-      const line2 = fixMrzLine(lines[i + 1], 30);
-      const line3 = fixMrzLine(lines[i + 2], 30);
+    const td1Line1 = normalizeMrzLine(current, 30);
+    const td1Line2 = normalizeMrzLine(next, 30);
+    const td1Line3 = normalizeMrzLine(third, 30);
 
-      if (looksLikeTd1Triplet(line1, line2, line3)) {
-        candidates.push({
-          format: "TD1",
-          lines: [line1, line2, line3],
-          score: scoreTd1(line1, line2, line3)
-        });
-      }
+    if (looksLikeTd1Triplet(td1Line1, td1Line2, td1Line3)) {
+      candidates.push({
+        format: "TD1",
+        lines: [td1Line1, td1Line2, td1Line3],
+        score: scoreTd1(td1Line1, td1Line2, td1Line3)
+      });
     }
 
-    if (looksLikeTd2Line1(line) && lines[i + 1]) {
-      const line1 = fixMrzLine(lines[i], 36);
-      const line2 = fixMrzLine(lines[i + 1], 36);
+    const td2Line1 = normalizeMrzLine(current, 36);
+    const td2Line2 = normalizeMrzLine(next, 36);
 
-      if (looksLikeTd2Pair(line1, line2)) {
-        candidates.push({
-          format: "TD2",
-          lines: [line1, line2],
-          score: scoreTd2(line1, line2)
-        });
-      }
+    if (looksLikeTd2Pair(td2Line1, td2Line2)) {
+      candidates.push({
+        format: "TD2",
+        lines: [td2Line1, td2Line2],
+        score: scoreTd2(td2Line1, td2Line2)
+      });
     }
   }
 
@@ -179,118 +162,83 @@ function cleanOcrMrzLine(line) {
   return String(line || "")
     .toUpperCase()
     .replace(/\s/g, "")
-    .replace(/«/g, "<")
-    .replace(/‹/g, "<")
-    .replace(/≤/g, "<")
-    .replace(/[{[(]/g, "<")
+    .replace(/«|‹|≤|{|}|\[|\]|\(|\)/g, "<")
     .replace(/[^A-Z0-9<]/g, "");
 }
 
-function fixMrzLine(line, targetLength) {
-  let value = String(line || "").toUpperCase();
+function normalizeMrzLine(line, targetLength) {
+  let value = String(line || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9<]/g, "");
 
-  value = value.replace(/[^A-Z0-9<]/g, "");
-
-  value = value.replace(/([A-Z0-9])<{0,1}[<]{2,}/g, (m) => m);
-
-  if (value.length > targetLength) {
-    value = value.slice(0, targetLength);
-  }
-
+  if (value.length > targetLength) value = value.slice(0, targetLength);
   return value.padEnd(targetLength, "<");
-}
-
-function looksLikeTd3Line1(line) {
-  return /^[A-Z][A-Z<][A-Z]{3}/.test(line) && line.length >= 35;
 }
 
 function looksLikeTd3Pair(line1, line2) {
   return /^[A-Z][A-Z<][A-Z]{3}/.test(line1)
-    && /^[A-Z0-9<]{9}[0-9<][A-Z]{3}[0-9]{6}[0-9<][MFX<][0-9]{6}/.test(line2);
-}
-
-function looksLikeTd1Line1(line) {
-  return /^[A-Z][A-Z<][A-Z]{3}/.test(line) && line.length >= 25;
+    && line1.length === 44
+    && line2.length === 44
+    && /[0-9]{6}/.test(line2.slice(13, 19))
+    && /[0-9]{6}/.test(line2.slice(21, 27));
 }
 
 function looksLikeTd1Triplet(line1, line2, line3) {
   return /^[A-Z][A-Z<][A-Z]{3}/.test(line1)
-    && /[0-9]{6}/.test(line2)
-    && line3.includes("<");
-}
-
-function looksLikeTd2Line1(line) {
-  return /^[A-Z][A-Z<][A-Z]{3}/.test(line) && line.length >= 30;
+    && line1.length === 30
+    && line2.length === 30
+    && line3.length === 30
+    && /[0-9]{6}/.test(line2.slice(0, 6))
+    && /[0-9]{6}/.test(line2.slice(8, 14));
 }
 
 function looksLikeTd2Pair(line1, line2) {
   return /^[A-Z][A-Z<][A-Z]{3}/.test(line1)
-    && /[0-9]{6}/.test(line2);
+    && line1.length === 36
+    && line2.length === 36
+    && /[0-9]{6}/.test(line2.slice(13, 19))
+    && /[0-9]{6}/.test(line2.slice(21, 27));
 }
 
 function selectBestMrz(candidates) {
   if (!candidates.length) return null;
-
   return candidates.sort((a, b) => b.score - a.score)[0];
 }
 
 function scoreTd3(line1, line2) {
   let score = 0;
-
-  if (line1.length === 44) score += 10;
-  if (line2.length === 44) score += 10;
-  if (line1.includes("<<")) score += 30;
+  if (line1.includes("<<")) score += 35;
   if (checkDigit(line2.slice(0, 9), line2[9])) score += 25;
   if (checkDigit(line2.slice(13, 19), line2[19])) score += 25;
   if (checkDigit(line2.slice(21, 27), line2[27])) score += 25;
   if (["M", "F", "X", "<"].includes(line2[20])) score += 10;
-
   return score;
 }
 
 function scoreTd1(line1, line2, line3) {
   let score = 0;
-
-  if (line1.length === 30) score += 10;
-  if (line2.length === 30) score += 10;
-  if (line3.length === 30) score += 10;
-  if (line3.includes("<<")) score += 25;
+  if (line3.includes("<<")) score += 35;
   if (checkDigit(line1.slice(5, 14), line1[14])) score += 20;
   if (checkDigit(line2.slice(0, 6), line2[6])) score += 20;
   if (checkDigit(line2.slice(8, 14), line2[14])) score += 20;
-
   return score;
 }
 
 function scoreTd2(line1, line2) {
   let score = 0;
-
-  if (line1.length === 36) score += 10;
-  if (line2.length === 36) score += 10;
-  if (line1.includes("<<")) score += 25;
+  if (line1.includes("<<")) score += 35;
   if (checkDigit(line2.slice(0, 9), line2[9])) score += 20;
   if (checkDigit(line2.slice(13, 19), line2[19])) score += 20;
   if (checkDigit(line2.slice(21, 27), line2[27])) score += 20;
-
   return score;
 }
 
 function parseTravelDocument(candidate, rawText) {
-  if (!candidate) {
-    return buildFallbackFromVisibleText(rawText);
-  }
+  if (!candidate) return buildFallbackFromVisibleText(rawText);
 
-  if (candidate.format === "TD3") {
-    return parseTd3(candidate.lines, rawText);
-  }
-
-  if (candidate.format === "TD1") {
-    return parseTd1(candidate.lines, rawText);
-  }
-
-  if (candidate.format === "TD2") {
-    return parseTd2(candidate.lines, rawText);
-  }
+  if (candidate.format === "TD3") return parseTd3(candidate.lines, rawText);
+  if (candidate.format === "TD1") return parseTd1(candidate.lines, rawText);
+  if (candidate.format === "TD2") return parseTd2(candidate.lines, rawText);
 
   return buildFallbackFromVisibleText(rawText);
 }
@@ -312,20 +260,20 @@ function parseTd3(lines, rawText) {
   const visibleName = extractVisibleName(rawText);
   const resolvedName = resolveName(name, visibleName);
 
-  return {
-    documentType: detectPrimaryDocumentType(documentCode, nationalityRaw, rawText),
+  return buildPrimaryResult({
+    documentCode,
     issuingCountry,
     passportNumber,
-    surname: resolvedName.surname,
-    givenNames: resolvedName.givenNames,
-    fullName: `${resolvedName.givenNames} ${resolvedName.surname}`.trim(),
-    nationality: normalizeNationality(nationalityRaw, rawText),
+    nationalityRaw,
     dateOfBirth,
     gender,
     expiryDate,
+    resolvedName,
     mrzRawData: `${line1}\n${line2}`,
-    confidenceScore: buildConfidence(lines, "TD3", resolvedName.confidence)
-  };
+    rawText,
+    format: "TD3",
+    lines
+  });
 }
 
 function parseTd1(lines, rawText) {
@@ -335,7 +283,7 @@ function parseTd1(lines, rawText) {
 
   const documentCode = line1.slice(0, 2).replace(/</g, "");
   const issuingCountry = line1.slice(2, 5).replace(/</g, "");
-  const documentNumber = line1.slice(5, 14).replace(/</g, "");
+  const passportNumber = line1.slice(5, 14).replace(/</g, "");
   const dateOfBirth = formatBirthDate(line2.slice(0, 6));
   const gender = normalizeGender(line2.slice(7, 8));
   const expiryDate = formatExpiryDate(line2.slice(8, 14));
@@ -345,20 +293,20 @@ function parseTd1(lines, rawText) {
   const visibleName = extractVisibleName(rawText);
   const resolvedName = resolveName(name, visibleName);
 
-  return {
-    documentType: detectPrimaryDocumentType(documentCode, nationalityRaw, rawText),
+  return buildPrimaryResult({
+    documentCode,
     issuingCountry,
-    passportNumber: documentNumber,
-    surname: resolvedName.surname,
-    givenNames: resolvedName.givenNames,
-    fullName: `${resolvedName.givenNames} ${resolvedName.surname}`.trim(),
-    nationality: normalizeNationality(nationalityRaw, rawText),
+    passportNumber,
+    nationalityRaw,
     dateOfBirth,
     gender,
     expiryDate,
+    resolvedName,
     mrzRawData: `${line1}\n${line2}\n${line3}`,
-    confidenceScore: buildConfidence(lines, "TD1", resolvedName.confidence)
-  };
+    rawText,
+    format: "TD1",
+    lines
+  });
 }
 
 function parseTd2(lines, rawText) {
@@ -378,66 +326,80 @@ function parseTd2(lines, rawText) {
   const visibleName = extractVisibleName(rawText);
   const resolvedName = resolveName(name, visibleName);
 
-  return {
-    documentType: detectPrimaryDocumentType(documentCode, nationalityRaw, rawText),
+  return buildPrimaryResult({
+    documentCode,
     issuingCountry,
     passportNumber,
-    surname: resolvedName.surname,
-    givenNames: resolvedName.givenNames,
-    fullName: `${resolvedName.givenNames} ${resolvedName.surname}`.trim(),
-    nationality: normalizeNationality(nationalityRaw, rawText),
+    nationalityRaw,
     dateOfBirth,
     gender,
     expiryDate,
+    resolvedName,
     mrzRawData: `${line1}\n${line2}`,
-    confidenceScore: buildConfidence(lines, "TD2", resolvedName.confidence)
+    rawText,
+    format: "TD2",
+    lines
+  });
+}
+
+function buildPrimaryResult(params) {
+  return {
+    documentType: detectPrimaryDocumentType(params.documentCode, params.nationalityRaw, params.rawText),
+    issuingCountry: params.issuingCountry,
+    passportNumber: params.passportNumber,
+    surname: params.resolvedName.surname,
+    givenNames: params.resolvedName.givenNames,
+    fullName: buildFullName(params.resolvedName.givenNames, params.resolvedName.surname),
+    nationality: normalizeNationality(params.nationalityRaw, params.rawText),
+    dateOfBirth: params.dateOfBirth,
+    gender: params.gender,
+    expiryDate: params.expiryDate,
+    mrzRawData: params.mrzRawData,
+    confidenceScore: buildConfidence(params.lines, params.format, params.resolvedName.confidence)
   };
 }
 
 function parseMrzName(nameZone) {
-  let zone = String(nameZone || "").toUpperCase();
+  const zone = String(nameZone || "")
+    .toUpperCase()
+    .replace(/[^A-Z<]/g, "<")
+    .replace(/<{3,}/g, "<<");
 
-  zone = zone.replace(/[^A-Z<]/g, "<");
-  zone = zone.replace(/<{3,}/g, "<<");
+  const separatorIndex = zone.indexOf("<<");
 
-  const doubleIndex = zone.indexOf("<<");
-
-  if (doubleIndex >= 0) {
+  if (separatorIndex >= 0) {
     return {
-      surname: cleanName(zone.slice(0, doubleIndex).replace(/</g, " ")),
-      givenNames: cleanName(zone.slice(doubleIndex + 2).replace(/</g, " "))
+      surname: mrzNameToText(zone.slice(0, separatorIndex)),
+      givenNames: mrzNameToText(zone.slice(separatorIndex + 2))
     };
   }
 
   const parts = zone.split("<").filter(Boolean);
 
   return {
-    surname: cleanName(parts[0] || ""),
-    givenNames: cleanName(parts.slice(1).join(" "))
+    surname: mrzNameToText(parts[0] || ""),
+    givenNames: mrzNameToText(parts.slice(1).join("<"))
   };
+}
+
+function mrzNameToText(value) {
+  return String(value || "")
+    .replace(/</g, " ")
+    .replace(/\b[KLI]{3,}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractVisibleName(text) {
   const lines = String(text || "")
     .toUpperCase()
     .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
+    .map((line) => stripAccents(line).replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
   return {
-    surname: findFieldValue(lines, [
-      "SURNAME",
-      "FAMILY NAME",
-      "LAST NAME",
-      "NOM"
-    ]),
-    givenNames: findFieldValue(lines, [
-      "GIVEN NAMES",
-      "GIVEN NAME",
-      "FIRST NAME",
-      "PRENOMS",
-      "PRÉNOMS"
-    ])
+    surname: findFieldValue(lines, ["SURNAME", "FAMILY NAME", "LAST NAME", "NOM"]),
+    givenNames: findFieldValue(lines, ["GIVEN NAMES", "GIVEN NAME", "FIRST NAME", "FORENAME", "PRENOMS", "PRÉNOMS", "NAME"])
   };
 }
 
@@ -445,22 +407,14 @@ function findFieldValue(lines, labels) {
   for (let i = 0; i < lines.length; i += 1) {
     const line = stripAccents(lines[i]);
 
-    for (const label of labels) {
-      const normalizedLabel = stripAccents(label);
+    for (const label of labels.map(stripAccents)) {
+      if (line.includes(label)) {
+        const after = line.replace(new RegExp(`.*${escapeRegex(label)}\\s*[:/-]*\\s*`, "i"), "").trim();
 
-      if (line.includes(normalizedLabel)) {
-        const afterLabel = line
-          .replace(new RegExp(`.*${escapeRegex(normalizedLabel)}\\s*[:/-]*\\s*`, "i"), "")
-          .trim();
+        if (isLikelyName(after)) return cleanName(after);
 
-        if (isLikelyName(afterLabel)) {
-          return cleanName(afterLabel);
-        }
-
-        const nextLine = lines[i + 1] || "";
-        if (isLikelyName(nextLine)) {
-          return cleanName(nextLine);
-        }
+        const next = lines[i + 1] || "";
+        if (isLikelyName(next)) return cleanName(next);
       }
     }
   }
@@ -471,6 +425,7 @@ function findFieldValue(lines, labels) {
 function resolveName(mrzName, visibleName) {
   const mrzSurname = cleanName(mrzName.surname);
   const mrzGiven = cleanName(mrzName.givenNames);
+
   const visibleSurname = cleanName(visibleName.surname);
   const visibleGiven = cleanName(visibleName.givenNames);
 
@@ -481,7 +436,7 @@ function resolveName(mrzName, visibleName) {
     surname,
     givenNames,
     confidence: surname && givenNames
-      ? "High - MRZ name resolved with visible text validation"
+      ? "High - MRZ name resolved with compound-name support"
       : "Medium - name partially resolved"
   };
 }
@@ -490,54 +445,50 @@ function chooseName(mrzValue, visibleValue) {
   const mrz = cleanName(mrzValue);
   const visible = cleanName(visibleValue);
 
-  if (!mrz && visible) return visible;
   if (mrz && !visible) return mrz;
+  if (!mrz && visible) return visible;
   if (!mrz && !visible) return "";
 
   const mrzScore = nameQualityScore(mrz);
   const visibleScore = nameQualityScore(visible);
 
-  if (visibleScore > mrzScore + 10) return visible;
+  if (visibleScore > mrzScore + 12) return visible;
   return mrz;
 }
 
 function nameQualityScore(value) {
   const clean = cleanName(value);
-  if (!clean) return 0;
-
-  let score = clean.length;
   const tokens = clean.split(" ").filter(Boolean);
 
-  score += tokens.length * 5;
+  let score = clean.length + tokens.length * 6;
 
-  if (tokens.some((token) => token.length === 1)) score -= 12;
-  if (tokens.some((token) => /^(P|PR|ID|VISA|PASSPORT|DOCUMENT)$/.test(token))) score -= 30;
-  if (/(GIVEN|NAME|SURNAME|FAMILY|DATE|BIRTH|COUNTRY|SEX|ISSUE|EXPIRY)/.test(clean)) score -= 40;
+  if (!clean) return 0;
+  if (/(GIVEN|SURNAME|FAMILY|DATE|BIRTH|COUNTRY|SEX|PASSPORT|DOCUMENT|TYPE|CODE)/.test(clean)) score -= 50;
+  if (tokens.some((t) => t.length === 1)) score -= 10;
+  if (tokens.some((t) => /^[KLI]{3,}$/.test(t))) score -= 30;
 
   return score;
-}
-
-function isLikelyName(value) {
-  const clean = cleanName(value);
-
-  if (!clean) return false;
-  if (clean.length < 2 || clean.length > 55) return false;
-  if (/(DATE|BIRTH|SEX|COUNTRY|DOCUMENT|PASSPORT|EXPIRY|ISSUE|AUTHORITY|CANADA|TYPE)/.test(clean)) return false;
-
-  return /^[A-Z\s'-]+$/.test(clean);
 }
 
 function cleanName(value) {
   return stripAccents(String(value || ""))
     .toUpperCase()
     .replace(/</g, " ")
-    .replace(/\b[KLI]{2,}\b/g, " ")
-    .replace(/\b[A-Z]*[KLI]{6,}\b/g, " ")
     .replace(/[^A-Z\s'-]/g, " ")
-    .replace(/\b(GIVEN|NAME|NAMES|SURNAME|FAMILY|DATE|BIRTH|COUNTRY|CITIZENSHIP|SEX|MALE|FEMALE|DOCUMENT|PASSPORT)\b/g, " ")
-    .replace(/\b(PR|P|ID)\b/g, " ")
+    .replace(/\b(GIVEN|NAME|NAMES|SURNAME|FAMILY|DATE|BIRTH|COUNTRY|CITIZENSHIP|SEX|MALE|FEMALE|DOCUMENT|PASSPORT|TYPE|CODE|NATIONALITY)\b/g, " ")
+    .replace(/\b[KLI]{3,}\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isLikelyName(value) {
+  const clean = cleanName(value);
+
+  if (!clean) return false;
+  if (clean.length < 2 || clean.length > 70) return false;
+  if (/(DATE|BIRTH|SEX|COUNTRY|DOCUMENT|PASSPORT|EXPIRY|ISSUE|AUTHORITY|TYPE|CODE|NATIONALITY)/.test(clean)) return false;
+
+  return /^[A-Z\s'-]+$/.test(clean);
 }
 
 function buildFallbackFromVisibleText(rawText) {
@@ -549,7 +500,7 @@ function buildFallbackFromVisibleText(rawText) {
     passportNumber: extractVisibleDocumentNumber(rawText),
     surname: visibleName.surname,
     givenNames: visibleName.givenNames,
-    fullName: `${visibleName.givenNames} ${visibleName.surname}`.trim(),
+    fullName: buildFullName(visibleName.givenNames, visibleName.surname),
     nationality: extractVisibleNationality(rawText),
     dateOfBirth: extractDateFromText(rawText, ["DATE OF BIRTH", "DOB", "BIRTH"]),
     gender: normalizeGender(extractTextValue(rawText, [/SEX[^A-Z0-9]*(M|F|MALE|FEMALE|X)/i])),
@@ -559,13 +510,16 @@ function buildFallbackFromVisibleText(rawText) {
   };
 }
 
+function buildFullName(givenNames, surname) {
+  return `${String(givenNames || "").trim()} ${String(surname || "").trim()}`
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function detectPrimaryDocumentType(code, nationalityRaw, rawText) {
   const text = String(rawText || "").toUpperCase();
 
-  if (text.includes("REFUGEE TRAVEL DOCUMENT") || nationalityRaw === "XXB") {
-    return "Refugee / Protected Person Travel Document";
-  }
-
+  if (text.includes("REFUGEE TRAVEL DOCUMENT") || nationalityRaw === "XXB") return "Refugee / Protected Person Travel Document";
   if (code === "PD") return "Diplomatic Passport";
   if (code === "PO") return "Official Passport";
   if (code === "PS") return "Service Passport";
@@ -609,15 +563,26 @@ function extractVisibleNationality(text) {
 function detectIssuingCountry(text) {
   const value = String(text || "").toUpperCase();
 
-  if (value.includes("CANADA")) return "CAN";
-  if (value.includes("UNITED ARAB EMIRATES") || value.includes("UAE")) return "ARE";
-  if (value.includes("UNITED STATES")) return "USA";
-  if (value.includes("UNITED KINGDOM")) return "GBR";
-  if (value.includes("SAUDI ARABIA")) return "SAU";
-  if (value.includes("QATAR")) return "QAT";
-  if (value.includes("KUWAIT")) return "KWT";
-  if (value.includes("BAHRAIN")) return "BHR";
-  if (value.includes("OMAN")) return "OMN";
+  const countries = {
+    CANADA: "CAN",
+    "SYRIAN ARAB REPUBLIC": "SYR",
+    SYRIA: "SYR",
+    INDIA: "IND",
+    PAKISTAN: "PAK",
+    "UNITED ARAB EMIRATES": "ARE",
+    UAE: "ARE",
+    "UNITED STATES": "USA",
+    "UNITED KINGDOM": "GBR",
+    "SAUDI ARABIA": "SAU",
+    QATAR: "QAT",
+    KUWAIT: "KWT",
+    BAHRAIN: "BHR",
+    OMAN: "OMN"
+  };
+
+  for (const [name, code] of Object.entries(countries)) {
+    if (value.includes(name)) return code;
+  }
 
   return "";
 }
@@ -634,10 +599,7 @@ function extractTextValue(text, patterns) {
 
   for (const pattern of patterns) {
     const match = normalized.match(pattern);
-
-    if (match) {
-      return cleanSimpleValue(match[2] || match[1]);
-    }
+    if (match) return cleanSimpleValue(match[2] || match[1]);
   }
 
   return "";
@@ -654,7 +616,6 @@ function extractDateFromText(text, labels) {
     );
 
     const match = normalized.match(pattern);
-
     if (match) return normalizeDate(match[1]);
   }
 
@@ -683,7 +644,6 @@ function formatExpiryDate(value) {
   const currentCentury = Math.floor(currentYear / 100) * 100;
 
   let year = currentCentury + yy;
-
   if (year < currentYear - 5) year += 100;
 
   return `${year}-${mm}-${dd}`;
@@ -693,31 +653,18 @@ function normalizeDate(value) {
   const clean = String(value || "").trim().toUpperCase();
 
   const months = {
-    JAN: "01",
-    JANUARY: "01",
-    FEB: "02",
-    FEBRUARY: "02",
-    MAR: "03",
-    MARS: "03",
-    MARCH: "03",
-    APR: "04",
-    APRIL: "04",
-    MAY: "05",
-    MAI: "05",
-    JUN: "06",
-    JUNE: "06",
-    JUL: "07",
-    JULY: "07",
-    AUG: "08",
-    AUGUST: "08",
-    SEP: "09",
-    SEPTEMBER: "09",
-    OCT: "10",
-    OCTOBER: "10",
-    NOV: "11",
-    NOVEMBER: "11",
-    DEC: "12",
-    DECEMBER: "12"
+    JAN: "01", JANUARY: "01",
+    FEB: "02", FEBRUARY: "02",
+    MAR: "03", MARS: "03", MARCH: "03",
+    APR: "04", APRIL: "04",
+    MAY: "05", MAI: "05",
+    JUN: "06", JUNE: "06",
+    JUL: "07", JULY: "07",
+    AUG: "08", AUGUST: "08",
+    SEP: "09", SEPTEMBER: "09",
+    OCT: "10", OCTOBER: "10",
+    NOV: "11", NOVEMBER: "11",
+    DEC: "12", DECEMBER: "12"
   };
 
   const textDate = clean.match(/(\d{1,2})\s+([A-Z]{3,9})\s+(\d{2,4})/);
@@ -738,43 +685,34 @@ function normalizeDate(value) {
 
   let [a, b, c] = parts;
 
-  if (a.length === 4) {
-    return `${a}-${b.padStart(2, "0")}-${c.padStart(2, "0")}`;
-  }
-
+  if (a.length === 4) return `${a}-${b.padStart(2, "0")}-${c.padStart(2, "0")}`;
   if (c.length === 2) c = Number(c) > 40 ? `19${c}` : `20${c}`;
 
   return `${c}-${b.padStart(2, "0")}-${a.padStart(2, "0")}`;
 }
 
 function normalizeGender(value) {
-  const v = String(value || "").toUpperCase().trim();
+  const clean = String(value || "").toUpperCase().trim();
 
-  if (["M", "MALE"].includes(v)) return "M";
-  if (["F", "FEMALE"].includes(v)) return "F";
-  if (v === "X") return "X";
+  if (["M", "MALE"].includes(clean)) return "M";
+  if (["F", "FEMALE"].includes(clean)) return "F";
+  if (clean === "X") return "X";
 
   return "";
 }
 
 function checkDigit(field, digit) {
   if (!digit || digit === "<") return false;
-
-  const expected = computeCheckDigit(field);
-  return String(expected) === String(digit);
+  return String(computeCheckDigit(field)) === String(digit);
 }
 
 function computeCheckDigit(input) {
   const weights = [7, 3, 1];
 
-  const total = String(input || "")
+  return String(input || "")
     .toUpperCase()
     .split("")
-    .reduce((sum, char, index) => {
-      return sum + mrzCharValue(char) * weights[index % 3];
-    }, 0);
-
-  return total % 10;
+    .reduce((sum, char, index) => sum + mrzCharValue(char) * weights[index % 3], 0) % 10;
 }
 
 function mrzCharValue(char) {
