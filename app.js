@@ -26,25 +26,49 @@ const progressMessage = document.getElementById("progressMessage");
 let passportFile = null;
 let visaFile = null;
 
-passportInput.addEventListener("change", () => {
-  passportFile = passportInput.files[0] || null;
-  showPreview(passportFile, passportPreview);
-});
+function initApp() {
+  passportInput.addEventListener("change", () => {
+    passportFile = passportInput.files[0] || null;
+    showPreview(passportFile, passportPreview);
+  });
 
-visaInput.addEventListener("change", () => {
-  visaFile = visaInput.files[0] || null;
-  showPreview(visaFile, visaPreview);
-});
+  visaInput.addEventListener("change", () => {
+    visaFile = visaInput.files[0] || null;
+    showPreview(visaFile, visaPreview);
+  });
 
-processBtn.addEventListener("click", processDocuments);
-clearBtn.addEventListener("click", clearAll);
+  processBtn.addEventListener("click", () => {
+    processDocuments();
+  });
 
+  clearBtn.addEventListener("click", () => {
+    clearAll();
+  });
+
+  console.log("Passport verifier app initialized successfully.");
+}
+
+initApp();
 function showPreview(file, imgElement) {
-  if (!file) {
-    imgElement.classList.add("hidden");
-    imgElement.removeAttribute("src");
+  if (!file || !imgElement) {
+    imgElement?.classList.add("hidden");
+    imgElement?.removeAttribute("src");
     return;
   }
+
+  const reader = new FileReader();
+
+  reader.onload = (event) => {
+    imgElement.src = event.target.result;
+    imgElement.classList.remove("hidden");
+  };
+
+  reader.onerror = () => {
+    showStatus("Image preview failed.", "danger");
+  };
+
+  reader.readAsDataURL(file);
+}
 
   const url = URL.createObjectURL(file);
   imgElement.src = url;
