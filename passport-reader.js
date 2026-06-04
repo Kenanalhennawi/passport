@@ -1,4 +1,7 @@
-import { preprocessImageForOcr } from "./image-processor.js";
+import {
+  preprocessImageForOcr,
+  fileToOcrImageDataUrls
+} from "./image-processor.js";
 
 export async function readPassport(file, onProgress = () => {}) {
   const warnings = [];
@@ -6,44 +9,108 @@ export async function readPassport(file, onProgress = () => {}) {
   try {
     onProgress(0.03);
 
-    const fullImage = await preprocessImageForOcr(file);
-    onProgress(0.12);
-
-    const mrzImage = await cropMrzZone(file);
-    onProgress(0.20);
-
-    const mrzText = await runLocalOcr(mrzImage, (p) => {
-      onProgress(0.20 + p * 0.55);
+    const pages = await fileToOcrImageDataUrls(file, {
+      maxPages: 3,
+      scale: 2.7
     });
 
-    const fullText = await runLocalOcr(fullImage, (p) => {
-      onProgress(0.75 + p * 0.20);
-    });
-
-    onProgress(0.96);
-
-    const combinedText = `${mrzText}\n${fullText}`;
-
-    let parsed = null;
-
-    if (window.PVV && window.PVV.MRZParser && typeof window.PVV.MRZParser.parse === "function") {
-      parsed = window.PVV.MRZParser.parse(combinedText);
-    } else {
-      warnings.push("MRZ parser engine was not loaded.");
-      parsed = buildFallbackResult(fullText, mrzText, warnings);
+    if (!pages.length) {
+      throw new Error("No readable image or PDF page was found.");
     }
 
-    const data = normalizeForCurrentApp(parsed, fullText, mrzText, warnings);
+    onProgress(0.10);
+
+    const attempts = [];
+
+    for (let i = 0; i < pages.length; i += 1) {
+      const pageProgressStart = 0.10 + i * (0.80 / pages.length);
+      const pageProgressEnd = 0.10 + (i + 1) * (0.80 / pages.length);
+      const pageProgressRange = pageProgressEnd - pageProgressStart;
+
+      const pageImage = pages[i];
+
+      const fullImage = await preprocessImageForOcr(pageImage);
+
+      onProgress(pageProgressStart + pageProgressRange * 0.15);
+
+      const mrzImage = await cropMrzZoneFromDataUrl(pageImage);
+
+      onProgress(pageProgressStart + pageProgressRange * 0.25);
+
+      const mrzText = await runLocalOcr(mrzImage, (p) => {
+        onProgress(pageProgressStart + pageProgressRange * (0.25 + p * 0.45));
+      });
+
+      const fullText = await runLocalOcr(fullImage, (p) => {
+        onProgress(pageProgressStart + pageProgressRange * (0.70 + p * 0.25));
+      });
+
+      const combinedText = `${mrzText}\n${fullText}`;
+
+      let parsed = null;
+
+      if (
+        window.PVV &&
+        window.PVV.MRZParser &&
+        typeof window.PVV.MRZParser.parse === "function"
+      ) {
+        parsed = window.PVV.MRZParser.parse(combinedText);
+      } else {
+        warnings.push("MRZ parser engine was not loaded.");
+        parsed = buildFallbackResult(fullText, mrzText, warnings);
+      }
+
+      attempts.push({
+        pageIndex: i,
+        pageNumber: i + 1,
+        fullImage,
+        mrzImage,
+        fullText,
+        mrzText,
+        combinedText,
+        parsed,
+        score: scorePassportAttempt(parsed, combinedText)
+      });
+    }
+
+    const bestAttempt = attempts.sort((a, b) => b.score - a.score)[0];
+
+    if (!bestAttempt) {
+      throw new Error("Unable to process passport file.");
+    }
+
+    if (bestAttempt.score < 40) {
+      warnings.push("Low confidence passport read. Please use a clearer image or PDF scan.");
+    }
+
+    const data = normalizeForCurrentApp(
+      bestAttempt.parsed,
+      bestAttempt.fullText,
+      bestAttempt.mrzText,
+      warnings
+    );
+
+    data.selectedPage = bestAttempt.pageNumber;
+    data.processingScore = bestAttempt.score;
 
     onProgress(1);
 
     return {
       type: "primary_document",
       data,
-      rawText: fullText,
-      mrzText,
-      mrz: parsed?.mrzCleaned || [],
-      parsed
+      rawText: bestAttempt.fullText,
+      mrzText: bestAttempt.mrzText,
+      mrz: bestAttempt.parsed?.mrzCleaned || [],
+      parsed: bestAttempt.parsed,
+      attempts: attempts.map((item) => ({
+        pageNumber: item.pageNumber,
+        score: item.score,
+        mrzFormat: item.parsed?.mrzFormat || "NONE",
+        documentNumber: item.parsed?.documentNumber || "",
+        fullName: item.parsed?.fullName || "",
+        checkDigits: item.parsed?.checkDigits || null,
+        confidence: item.parsed?.confidence || null
+      }))
     };
   } catch (error) {
     warnings.push(error.message || "Passport reading failed.");
@@ -56,7 +123,8 @@ export async function readPassport(file, onProgress = () => {}) {
       rawText: "",
       mrzText: "",
       mrz: [],
-      parsed: fallback
+      parsed: fallback,
+      attempts: []
     };
   }
 }
@@ -79,8 +147,9 @@ async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
   return result?.data?.text || "";
 }
 
-async function cropMrzZone(file) {
-  const image = await loadImage(file);
+async function cropMrzZoneFromDataUrl(imageDataUrl) {
+  const image = await loadImageFromDataUrl(imageDataUrl);
+
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
@@ -108,27 +177,22 @@ async function cropMrzZone(file) {
   return canvas.toDataURL("image/png", 1);
 }
 
-function loadImage(file) {
+function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
-    if (!file || !file.type.startsWith("image/")) {
-      reject(new Error("Invalid passport image file."));
+    if (!dataUrl || typeof dataUrl !== "string") {
+      reject(new Error("Invalid image data."));
       return;
     }
 
     const img = new Image();
-    const url = URL.createObjectURL(file);
 
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
+    img.onload = () => resolve(img);
 
     img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Unable to load passport image."));
+      reject(new Error("Unable to load image."));
     };
 
-    img.src = url;
+    img.src = dataUrl;
   });
 }
 
@@ -150,6 +214,38 @@ function enhanceForMrz(ctx, width, height) {
   }
 
   ctx.putImageData(imageData, 0, 0);
+}
+
+function scorePassportAttempt(parsed, text) {
+  let score = 0;
+
+  if (!parsed) return 0;
+
+  if (parsed.mrzFormat && parsed.mrzFormat !== "NONE") score += 40;
+
+  if (parsed.checkDigits?.allValid) score += 30;
+  else {
+    if (parsed.checkDigits?.documentNumber) score += 8;
+    if (parsed.checkDigits?.dateOfBirth) score += 8;
+    if (parsed.checkDigits?.expiryDate) score += 8;
+    if (parsed.checkDigits?.composite) score += 8;
+  }
+
+  if (parsed.documentNumber) score += 10;
+  if (parsed.surname) score += 5;
+  if (parsed.givenNames) score += 5;
+  if (parsed.dateOfBirth) score += 5;
+  if (parsed.expiryDate) score += 5;
+  if (parsed.issuingCountryCode) score += 5;
+  if (parsed.nationalityCode) score += 5;
+
+  if (parsed.confidence?.score) {
+    score += Math.round(parsed.confidence.score / 10);
+  }
+
+  if (String(text || "").includes("<<")) score += 5;
+
+  return Math.max(0, Math.min(100, score));
 }
 
 function normalizeForCurrentApp(parsed, fullText, mrzText, extraWarnings = []) {
@@ -181,6 +277,13 @@ function normalizeForCurrentApp(parsed, fullText, mrzText, extraWarnings = []) {
     surname,
     givenNames,
     fullName,
+
+    nameConfidence: result.nameConfidence
+      ? `${result.nameConfidence.score}% - ${result.nameConfidence.grade}`
+      : "",
+    removedNameNoiseTokens: Array.isArray(result.removedNameNoiseTokens)
+      ? result.removedNameNoiseTokens.join(" | ")
+      : "",
 
     nationality: result.nationalityCode || "",
     nationalityName: result.nationality || "",
