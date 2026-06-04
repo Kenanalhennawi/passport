@@ -283,6 +283,9 @@
       mrzFormat: "TD3",
       surname: name.surname,
       givenNames: name.givenNames,
+      nameConfidence: name.nameConfidence,
+nameWarnings: name.nameWarnings,
+removedNameNoiseTokens: name.removedNoiseTokens,
       nationalityCode,
       dateOfBirth: mrzDateToISO(dobResult.value, "birth"),
       gender: normalizeGender(line2[20]),
@@ -345,6 +348,9 @@
       mrzFormat: "TD2",
       surname: name.surname,
       givenNames: name.givenNames,
+      nameConfidence: name.nameConfidence,
+nameWarnings: name.nameWarnings,
+removedNameNoiseTokens: name.removedNoiseTokens,
       nationalityCode,
       dateOfBirth: mrzDateToISO(dobResult.value, "birth"),
       gender: normalizeGender(line2[20]),
@@ -407,6 +413,9 @@
       mrzFormat: "TD1",
       surname: name.surname,
       givenNames: name.givenNames,
+      nameConfidence: name.nameConfidence,
+nameWarnings: name.nameWarnings,
+removedNameNoiseTokens: name.removedNoiseTokens,
       nationalityCode,
       dateOfBirth: mrzDateToISO(dobResult.value, "birth"),
       gender: normalizeGender(line2[7]),
@@ -444,13 +453,13 @@
   ) {
     const parsed = window.PVV.NameParser.parseMrzNameGlobal(nameZone);
 
-    return {
-      surname: parsed.surname,
-      givenNames: parsed.givenNames,
-      removedNoiseTokens: parsed.removedNoiseTokens,
-      nameConfidence: parsed.confidence,
-      nameWarnings: parsed.warnings
-    };
+   return {
+  surname: parsed.surname,
+  givenNames: parsed.givenNames,
+  removedNoiseTokens: parsed.removedNoiseTokens,
+  nameConfidence: parsed.confidence,
+  nameWarnings: parsed.warnings
+};
   }
 
   let zone = String(nameZone || "")
@@ -653,6 +662,8 @@
       surname: input.surname,
       givenNames: input.givenNames,
       fullName: `${input.givenNames} ${input.surname}`.replace(/\s+/g, " ").trim(),
+      nameConfidence: input.nameConfidence || null,
+removedNameNoiseTokens: input.removedNameNoiseTokens || [],
       nationality,
       nationalityCode: input.nationalityCode,
       dateOfBirth: input.dateOfBirth,
@@ -702,10 +713,28 @@
       breakdown.push("+15 expiry date valid");
     }
 
-    if (input.surname && input.givenNames) {
-      score += 10;
-      breakdown.push("+10 name parsed successfully");
-    }
+    if (input.nameConfidence) {
+
+  if (input.nameConfidence.score >= 90) {
+    score += 10;
+    breakdown.push("+10 name parsed successfully (HIGH confidence)");
+  }
+
+  else if (input.nameConfidence.score >= 70) {
+    score += 7;
+    breakdown.push("+7 name parsed successfully (MEDIUM confidence)");
+  }
+
+  else {
+    score += 3;
+    breakdown.push("+3 name parsed successfully (LOW confidence)");
+  }
+
+} else if (input.surname && input.givenNames) {
+
+  score += 10;
+  breakdown.push("+10 name parsed successfully");
+}
 
     if (COUNTRIES.isKnownCode(input.nationalityCode)) {
       score += 10;
