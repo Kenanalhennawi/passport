@@ -1,26 +1,138 @@
-import { preprocessImageForOcr } from "./image-processor.js";
-
+import {
+  preprocessImageForOcr,
+  fileToOcrImageDataUrls
+} from "./image-processor.js";
 
 export async function readVisaDocument(file, onProgress = () => {}) {
-  onProgress(0.02);
+  const warnings = [];
 
-  const processedImage = await preprocessImageForOcr(file);
-  onProgress(0.10);
+  try {
+    onProgress(0.02);
 
-  const ocrText = await runLocalOcr(processedImage, (p) => onProgress(0.10 + p * 0.85));
-  const classification = window.PVV.DocumentClassifier.classifyDocument(ocrText);
-  const documentType = classification.type;
-  const data = parseUniversalDocument(ocrText, documentType, classification);
+    const pages = await fileToOcrImageDataUrls(file, {
+      maxPages: 3,
+      scale: 2.5
+    });
 
-  onProgress(1);
+    if (!pages.length) {
+      throw new Error("No readable image or PDF page was found.");
+    }
 
-  return {
-    type: "secondary_document",
-    documentType,
-    classification,
-    data,
-    rawText: ocrText
-  };
+    const attempts = [];
+
+    for (let i = 0; i < pages.length; i += 1) {
+      const pageStart = 0.05 + i * (0.85 / pages.length);
+      const pageRange = 0.85 / pages.length;
+
+      const processedImage = await preprocessImageForOcr(pages[i]);
+
+      onProgress(pageStart + pageRange * 0.15);
+
+      const ocrText = await runLocalOcr(processedImage, (p) => {
+        onProgress(pageStart + pageRange * (0.15 + p * 0.75));
+      });
+
+      const classification = classifySafely(ocrText);
+      const documentType = classification.type;
+      const data = parseUniversalDocument(ocrText, documentType, classification);
+
+      attempts.push({
+        pageNumber: i + 1,
+        processedImage,
+        ocrText,
+        classification,
+        documentType,
+        data,
+        score: scoreVisaAttempt(ocrText, classification, data)
+      });
+    }
+
+    const bestAttempt = attempts.sort((a, b) => b.score - a.score)[0];
+
+    if (!bestAttempt) {
+      throw new Error("Unable to process visa or residence document.");
+    }
+
+    if (bestAttempt.score < 35) {
+      warnings.push("Low confidence secondary document read. Please use a clearer image or PDF scan.");
+    }
+
+    bestAttempt.data.selectedPage = bestAttempt.pageNumber;
+    bestAttempt.data.processingScore = bestAttempt.score;
+
+    if (warnings.length) {
+      bestAttempt.data.warnings = warnings.join(" | ");
+    }
+
+    onProgress(1);
+
+    return {
+      type: "secondary_document",
+      documentType: bestAttempt.documentType,
+      classification: bestAttempt.classification,
+      data: bestAttempt.data,
+      rawText: bestAttempt.ocrText,
+      attempts: attempts.map((item) => ({
+        pageNumber: item.pageNumber,
+        score: item.score,
+        documentType: item.documentType,
+        classificationConfidence: item.classification?.confidence || 0,
+        fullName: item.data?.fullName || "",
+        documentNumber: item.data?.documentNumber || "",
+        passportNumber: item.data?.passportNumber || "",
+        dateOfBirth: item.data?.dateOfBirth || "",
+        expiryDate: item.data?.expiryDate || ""
+      }))
+    };
+  } catch (error) {
+    const message = error?.message || "Visa / residence document reading failed.";
+
+    onProgress(1);
+
+    return {
+      type: "secondary_document",
+      documentType: "Unknown Document",
+      classification: {
+        type: "Unknown Document",
+        category: "Other",
+        route: "generic",
+        confidence: 0,
+        matchedKeywords: [],
+        alternatives: []
+      },
+      data: {
+        documentType: "Unknown Document",
+        classificationType: "Unknown Document",
+        classificationConfidence: "0%",
+        documentCategory: "Other",
+        documentNumber: "",
+        visaNumber: "",
+        passportNumber: "",
+        applicationNumber: "",
+        uci: "",
+        surname: "",
+        givenNames: "",
+        fullName: "",
+        nationality: "",
+        citizenship: "",
+        countryOfBirth: "",
+        dateOfBirth: "",
+        gender: "",
+        issueDate: "",
+        expiryDate: "",
+        entries: "",
+        durationOfStay: "",
+        validFrom: "",
+        validUntil: "",
+        issuingCountry: "",
+        matchedClassificationKeywords: "",
+        confidenceScore: "OCR failed or unsupported document.",
+        warnings: message
+      },
+      rawText: "",
+      attempts: []
+    };
+  }
 }
 
 async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
@@ -35,6 +147,47 @@ async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
   });
 
   return result?.data?.text || "";
+}
+
+function classifySafely(ocrText) {
+  if (
+    window.PVV &&
+    window.PVV.DocumentClassifier &&
+    typeof window.PVV.DocumentClassifier.classifyDocument === "function"
+  ) {
+    return window.PVV.DocumentClassifier.classifyDocument(ocrText);
+  }
+
+  return {
+    type: "Unknown Document",
+    category: "Other",
+    route: "generic",
+    confidence: 0,
+    matchedKeywords: [],
+    alternatives: []
+  };
+}
+
+function scoreVisaAttempt(text, classification, data) {
+  let score = 0;
+
+  if (text && text.trim().length > 30) score += 20;
+  if (classification?.confidence) score += Math.min(30, classification.confidence);
+  if (data?.documentNumber) score += 12;
+  if (data?.visaNumber) score += 12;
+  if (data?.passportNumber) score += 12;
+  if (data?.applicationNumber) score += 10;
+  if (data?.uci) score += 10;
+  if (data?.surname) score += 8;
+  if (data?.givenNames) score += 8;
+  if (data?.fullName) score += 8;
+  if (data?.dateOfBirth) score += 10;
+  if (data?.gender) score += 5;
+  if (data?.expiryDate) score += 10;
+  if (data?.issueDate) score += 5;
+  if (data?.issuingCountry) score += 5;
+
+  return Math.max(0, Math.min(100, score));
 }
 
 function parseUniversalDocument(text, documentType, classification) {
@@ -61,7 +214,8 @@ function parseUniversalDocument(text, documentType, classification) {
   const detectedFullName = findLabeledValue(lines, [
     "FULL NAME",
     "NAME OF HOLDER",
-    "HOLDER"
+    "HOLDER",
+    "NAME"
   ]);
 
   const fullName = givenNames && surname
@@ -71,23 +225,26 @@ function parseUniversalDocument(text, documentType, classification) {
   return {
     documentType,
     classificationType: documentType,
-    classificationConfidence: `${classification.confidence}%`,
+    classificationConfidence: `${classification.confidence || 0}%`,
     documentCategory: determineCategory(documentType),
 
     documentNumber: findDocumentNumber(lines, flatText),
 
     visaNumber: findByPatterns(flatText, [
-      /VISA\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,20})/i,
-      /VAF\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,20})/i
+      /VISA\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i,
+      /VAF\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i,
+      /VIGNETTE\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i
     ]),
 
     passportNumber: findByPatterns(flatText, [
-      /PASSPORT\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,20})/i,
-      /P\.?\s*NO\s*[:\-]?\s*([A-Z0-9]{5,20})/i
+      /PASSPORT\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i,
+      /P\.?\s*NO\s*[:\-]?\s*([A-Z0-9]{5,25})/i,
+      /DOCUMENT\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i
     ]),
 
     applicationNumber: findByPatterns(flatText, [
-      /APPLICATION\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i
+      /APPLICATION\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i,
+      /APP\s*(NO|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{5,25})/i
     ]),
 
     uci: findByPatterns(flatText, [
