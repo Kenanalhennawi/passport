@@ -49,10 +49,25 @@ function initApp() {
 }
 
 initApp();
+
+window.addEventListener("error", (event) => {
+  console.error("Global error:", event.error || event.message);
+  showStatus(event.message || "Unexpected error occurred.", "danger");
+  setBusy(false);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("Unhandled promise rejection:", event.reason);
+  showStatus(event.reason?.message || "Processing failed unexpectedly.", "danger");
+  setBusy(false);
+});
+
 function showPreview(file, imgElement) {
-  if (!file || !imgElement) {
-    imgElement?.classList.add("hidden");
-    imgElement?.removeAttribute("src");
+  if (!imgElement) return;
+
+  if (!file) {
+    imgElement.classList.add("hidden");
+    imgElement.removeAttribute("src");
     return;
   }
 
@@ -64,15 +79,10 @@ function showPreview(file, imgElement) {
   };
 
   reader.onerror = () => {
-    showStatus("Image preview failed.", "danger");
+    showStatus("Image preview failed. Please select another image.", "danger");
   };
 
   reader.readAsDataURL(file);
-}
-
-  const url = URL.createObjectURL(file);
-  imgElement.src = url;
-  imgElement.classList.remove("hidden");
 }
 
 async function processDocuments() {
@@ -90,6 +100,7 @@ async function processDocuments() {
 
     const passportResult = await readPassport(passportFile, (progress) => {
       const percent = 5 + Math.round(progress * 40);
+
       updateProgress(
         Math.min(45, percent),
         "Reading Passport",
@@ -97,10 +108,15 @@ async function processDocuments() {
       );
     });
 
-    updateProgress(50, "Passport Completed", "Passport data extracted. Reading secondary document...");
+    updateProgress(
+      50,
+      "Passport Completed",
+      "Passport data extracted. Reading secondary document..."
+    );
 
     const visaResult = await readVisaDocument(visaFile, (progress) => {
       const percent = 50 + Math.round(progress * 40);
+
       updateProgress(
         Math.min(90, percent),
         "Reading Visa / Residence Document",
@@ -133,7 +149,11 @@ async function processDocuments() {
   } catch (error) {
     console.error(error);
     showStatus(error.message || "Processing failed.", "danger");
-    updateProgress(100, "Failed", "Processing failed. Please check the image quality or console error.");
+    updateProgress(
+      100,
+      "Failed",
+      "Processing failed. Please check the image quality or console error."
+    );
   } finally {
     setBusy(false);
   }
@@ -158,11 +178,11 @@ function resetProgress() {
 }
 
 function renderDataTable(container, data) {
-  const rows = Object.entries(data).map(([key, value]) => {
+  const rows = Object.entries(data || {}).map(([key, value]) => {
     return `
       <tr>
         <td>${escapeHtml(formatLabel(key))}</td>
-        <td>${escapeHtml(value || "Not detected")}</td>
+        <td>${escapeHtml(formatValue(value))}</td>
       </tr>
     `;
   }).join("");
@@ -182,13 +202,19 @@ function renderDataTable(container, data) {
 }
 
 function renderComparison(result) {
+  if (!result || !Array.isArray(result.fields)) {
+    comparisonTable.classList.add("empty");
+    comparisonTable.textContent = "No comparison available.";
+    return;
+  }
+
   const rows = result.fields.map((item) => `
     <tr>
       <td>${escapeHtml(item.label)}</td>
       <td>${escapeHtml(item.passportValue || "Not detected")}</td>
       <td>${escapeHtml(item.visaValue || "Not detected")}</td>
-      <td><span class="badge ${item.statusClass}">${escapeHtml(item.status)}</span></td>
-      <td>${escapeHtml(item.note)}</td>
+      <td><span class="badge ${escapeHtml(item.statusClass || "partial")}">${escapeHtml(item.status || "Unknown")}</span></td>
+      <td>${escapeHtml(item.note || "")}</td>
     </tr>
   `).join("");
 
@@ -210,6 +236,12 @@ function renderComparison(result) {
 }
 
 function renderDecision(result) {
+  if (!result) {
+    finalDecision.className = "decision-box empty";
+    finalDecision.textContent = "No decision available.";
+    return;
+  }
+
   let decisionClass = "decision-warning";
 
   if (result.decision === "VERIFIED") decisionClass = "decision-verified";
@@ -217,15 +249,15 @@ function renderDecision(result) {
 
   finalDecision.classList.remove("empty");
   finalDecision.innerHTML = `
-    <div class="decision-title ${decisionClass}">${escapeHtml(result.decision)}</div>
-    <p><strong>Risk Level:</strong> ${escapeHtml(result.riskLevel)}</p>
-    <p><strong>Overall Match Score:</strong> ${result.score}%</p>
-    <p><strong>Reason:</strong> ${escapeHtml(result.reason)}</p>
+    <div class="decision-title ${decisionClass}">${escapeHtml(result.decision || "UNKNOWN")}</div>
+    <p><strong>Risk Level:</strong> ${escapeHtml(result.riskLevel || "Unknown")}</p>
+    <p><strong>Overall Match Score:</strong> ${escapeHtml(result.score ?? "N/A")}%</p>
+    <p><strong>Reason:</strong> ${escapeHtml(result.reason || "")}</p>
   `;
 }
 
 function renderAlerts(alerts) {
-  if (!alerts.length) {
+  if (!Array.isArray(alerts) || !alerts.length) {
     alertsList.innerHTML = "<li>No alerts detected.</li>";
     return;
   }
@@ -248,12 +280,14 @@ function showStatus(message, type) {
 
 function setBusy(isBusy) {
   processBtn.disabled = isBusy;
+  clearBtn.disabled = isBusy;
   processBtn.textContent = isBusy ? "Processing..." : "Read & Compare Documents";
 }
 
 function clearAll() {
   passportFile = null;
   visaFile = null;
+
   passportInput.value = "";
   visaInput.value = "";
 
@@ -271,8 +305,10 @@ function clearAll() {
   visaDataBox.textContent = "No visa or residence document processed yet.";
   comparisonTable.textContent = "No comparison available yet.";
   finalDecision.textContent = "Waiting for document processing.";
+
   alertsList.innerHTML = "<li>No alerts yet.</li>";
   rawOutput.textContent = "No raw data yet.";
+
   statusPanel.classList.add("hidden");
 
   progressPanel.classList.add("hidden");
@@ -280,12 +316,30 @@ function clearAll() {
   progressPercent.textContent = "0%";
   progressTitle.textContent = "Processing...";
   progressMessage.textContent = "Preparing OCR engine...";
+
+  setBusy(false);
 }
 
 function formatLabel(key) {
-  return key
+  return String(key || "")
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (char) => char.toUpperCase());
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "Not detected";
+  }
+
+  if (Array.isArray(value)) {
+    return value.length ? value.join(" | ") : "Not detected";
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+
+  return value;
 }
 
 function escapeHtml(value) {
