@@ -1,5 +1,5 @@
 import { preprocessImageForOcr } from "./image-processor.js";
-import { classifyDocument } from "./document-classifier.js";
+
 
 export async function readVisaDocument(file, onProgress = () => {}) {
   onProgress(0.02);
@@ -8,7 +8,7 @@ export async function readVisaDocument(file, onProgress = () => {}) {
   onProgress(0.10);
 
   const ocrText = await runLocalOcr(processedImage, (p) => onProgress(0.10 + p * 0.85));
-  const classification = classifyDocument(ocrText);
+  const classification = window.PVV.DocumentClassifier.classifyDocument(ocrText);
   const documentType = classification.type;
   const data = parseUniversalDocument(ocrText, documentType, classification);
 
