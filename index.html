@@ -1,78 +1,127 @@
 <!DOCTYPE html>
 <html lang="en">
- 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <title>Passport & Visa Verification</title>
-  <link rel="icon" href="assets/favicon.ico">
+
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
+
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined"
+  />
+
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <main class="app-shell">
     <header class="hero">
       <div>
         <span class="eyebrow">Flydubai Style Internal Tool</span>
         <h1>Passport & Visa Verification</h1>
-        <p>Local document reading, field extraction, and intelligent comparison on one secure page.</p>
+        <p>
+          Local document reading, field extraction, and intelligent comparison on one secure page.
+        </p>
       </div>
+
       <div class="privacy-badge">No Upload • Local Processing</div>
     </header>
 
     <section class="upload-grid">
       <div class="upload-card">
-        <h2>Passport Image</h2>
+        <h2>
+          <span class="material-symbols-outlined section-icon">badge</span>
+          Passport Image
+        </h2>
         <input id="passportInput" type="file" accept="image/*" />
         <img id="passportPreview" class="preview hidden" alt="Passport preview" />
       </div>
 
       <div class="upload-card">
-        <h2>Visa / Residence Image</h2>
+        <h2>
+          <span class="material-symbols-outlined section-icon">description</span>
+          Visa / Residence Image
+        </h2>
         <input id="visaInput" type="file" accept="image/*" />
         <img id="visaPreview" class="preview hidden" alt="Visa preview" />
       </div>
     </section>
-<section id="progressPanel" class="progress-panel hidden">
-  <div class="progress-header">
-    <strong id="progressTitle">Processing...</strong>
-    <span id="progressPercent">0%</span>
-  </div>
-  <div class="progress-track">
-    <div id="progressBar" class="progress-bar"></div>
-  </div>
-  <p id="progressMessage">Preparing OCR engine...</p>
-</section>
+
+    <section id="progressPanel" class="progress-panel hidden">
+      <div class="progress-header">
+        <strong id="progressTitle">Processing...</strong>
+        <span id="progressPercent">0%</span>
+      </div>
+
+      <div class="progress-track">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+
+      <p id="progressMessage">Preparing OCR engine...</p>
+    </section>
+
     <section class="action-row">
-      <button id="processBtn" class="primary-btn">Read & Compare Documents</button>
-      <button id="clearBtn" class="secondary-btn">Clear All</button>
+      <button id="processBtn" class="primary-btn">
+        <span class="material-symbols-outlined">fact_check</span>
+        Read & Compare Documents
+      </button>
+
+      <button id="clearBtn" class="secondary-btn">
+        <span class="material-symbols-outlined">delete</span>
+        Clear All
+      </button>
     </section>
 
     <section id="statusPanel" class="status-panel hidden"></section>
 
     <section class="results-grid">
       <div class="result-card">
-        <h2>Passport Extracted Data</h2>
+        <h2>
+          <span class="material-symbols-outlined section-icon">account_box</span>
+          Passport Extracted Data
+        </h2>
         <div id="passportData" class="data-table empty">No passport processed yet.</div>
       </div>
 
       <div class="result-card">
-        <h2>Visa / Residence Extracted Data</h2>
-        <div id="visaData" class="data-table empty">No visa or residence document processed yet.</div>
+        <h2>
+          <span class="material-symbols-outlined section-icon">article</span>
+          Visa / Residence Extracted Data
+        </h2>
+        <div id="visaData" class="data-table empty">
+          No visa or residence document processed yet.
+        </div>
       </div>
     </section>
 
     <section class="result-card full">
-      <h2>Final Verification Result</h2>
-      <div id="finalDecision" class="decision-box empty">Waiting for document processing.</div>
+      <h2>
+        <span class="material-symbols-outlined section-icon">verified</span>
+        Final Verification Result
+      </h2>
+      <div id="finalDecision" class="decision-box empty">
+        Waiting for document processing.
+      </div>
     </section>
 
     <section class="result-card full">
-      <h2>Field-by-Field Comparison</h2>
-      <div id="comparisonTable" class="comparison empty">No comparison available yet.</div>
+      <h2>
+        <span class="material-symbols-outlined section-icon">compare_arrows</span>
+        Field-by-Field Comparison
+      </h2>
+      <div id="comparisonTable" class="comparison empty">
+        No comparison available yet.
+      </div>
     </section>
 
     <section class="result-card full">
-      <h2>Alerts & Findings</h2>
+      <h2>
+        <span class="material-symbols-outlined section-icon">warning</span>
+        Alerts & Findings
+      </h2>
       <ul id="alertsList" class="alerts-list">
         <li>No alerts yet.</li>
       </ul>
@@ -80,22 +129,25 @@
 
     <section class="result-card full">
       <details>
-        <summary>Raw OCR / MRZ Data</summary>
+        <summary>
+          <span class="material-symbols-outlined section-icon">terminal</span>
+          Raw OCR / MRZ Data
+        </summary>
         <pre id="rawOutput">No raw data yet.</pre>
       </details>
     </section>
   </main>
 
- <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
-<script src="validators/checkdigit.js"></script>
-<script src="data/countries.js"></script>
-<script src="name-parser.js"></script>
-<script src="mrz-parser.js"></script>
-<script src="document-classifier.js"></script>
-<script src="parsers/schengen-parser.js"></script>
-<script src="parsers/uae-visa-parser.js"></script>
+  <script src="validators/checkdigit.js"></script>
+  <script src="data/countries.js"></script>
+  <script src="name-parser.js"></script>
+  <script src="mrz-parser.js"></script>
+  <script src="document-classifier.js"></script>
+  <script src="parsers/schengen-parser.js"></script>
+  <script src="parsers/uae-visa-parser.js"></script>
 
-<script type="module" src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
