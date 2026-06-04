@@ -273,6 +273,9 @@
     const nationalityCode = line2.slice(10, 13).replace(/</g, "");
 
     const name = parseName(line1.slice(5));
+    if (name.nameWarnings && name.nameWarnings.length) {
+  warnings.push(...name.nameWarnings);
+}
 
     return buildResult({
       documentType: docType.type,
@@ -332,6 +335,9 @@
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(10, 13).replace(/</g, "");
     const name = parseName(line1.slice(5));
+    if (name.nameWarnings && name.nameWarnings.length) {
+  warnings.push(...name.nameWarnings);
+}
 
     return buildResult({
       documentType: docType.type,
@@ -391,6 +397,9 @@
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(15, 18).replace(/</g, "");
     const name = parseName(line3);
+    if (name.nameWarnings && name.nameWarnings.length) {
+  warnings.push(...name.nameWarnings);
+}
 
     return buildResult({
       documentType: docType.type,
@@ -428,32 +437,58 @@
   }
 
   function parseName(nameZone) {
-    let zone = String(nameZone || "")
-      .toUpperCase()
-      .replace(/[^A-Z<]/g, "<");
-
-    for (const rule of MRZ_SEPARATOR_CORRUPTION_PATTERNS) {
-      zone = zone.replace(rule.pattern, rule.replacement);
-    }
-
-    zone = zone.replace(/<{3,}/g, "<<");
-
-    const separatorIndex = zone.indexOf("<<");
-
-    if (separatorIndex >= 0) {
-      return {
-        surname: mrzNameToText(zone.slice(0, separatorIndex)),
-        givenNames: mrzNameToText(zone.slice(separatorIndex + 2))
-      };
-    }
-
-    const parts = zone.split("<").filter(Boolean);
+  if (
+    window.PVV &&
+    window.PVV.NameParser &&
+    typeof window.PVV.NameParser.parseMrzNameGlobal === "function"
+  ) {
+    const parsed = window.PVV.NameParser.parseMrzNameGlobal(nameZone);
 
     return {
-      surname: mrzNameToText(parts[0] || ""),
-      givenNames: mrzNameToText(parts.slice(1).join("<"))
+      surname: parsed.surname,
+      givenNames: parsed.givenNames,
+      removedNoiseTokens: parsed.removedNoiseTokens,
+      nameConfidence: parsed.confidence,
+      nameWarnings: parsed.warnings
     };
   }
+
+  let zone = String(nameZone || "")
+    .toUpperCase()
+    .replace(/[^A-Z<]/g, "<");
+
+  zone = zone.replace(/<{3,}/g, "<<");
+
+  const separatorIndex = zone.indexOf("<<");
+
+  if (separatorIndex >= 0) {
+    return {
+      surname: mrzNameToText(zone.slice(0, separatorIndex)),
+      givenNames: mrzNameToText(zone.slice(separatorIndex + 2)),
+      removedNoiseTokens: [],
+      nameConfidence: {
+        score: 70,
+        grade: "MEDIUM",
+        reasons: ["Fallback MRZ name parser used."]
+      },
+      nameWarnings: []
+    };
+  }
+
+  const parts = zone.split("<").filter(Boolean);
+
+  return {
+    surname: mrzNameToText(parts[0] || ""),
+    givenNames: mrzNameToText(parts.slice(1).join("<")),
+    removedNoiseTokens: [],
+    nameConfidence: {
+      score: 50,
+      grade: "LOW",
+      reasons: ["Fallback parser used without primary separator."]
+    },
+    nameWarnings: ["MRZ primary name separator was not found."]
+  };
+}
 
   function mrzNameToText(value) {
     const alpha = CHECK.correctAlphaField(value || "").corrected;
@@ -599,6 +634,9 @@
     const confidence = buildConfidence(input, expiry);
 
     const warnings = input.warnings || [];
+    if (input.nameWarnings && input.nameWarnings.length) {
+  warnings.push(...input.nameWarnings);
+}
 
     if (!input.surname || !input.givenNames) warnings.push("Name is incomplete.");
     if (!COUNTRIES.isKnownCode(input.nationalityCode)) warnings.push("Nationality code is not recognized.");
