@@ -36,7 +36,7 @@
           <span class="material-symbols-outlined section-icon">badge</span>
           Passport Image
         </h2>
-        <input id="passportInput" type="file" accept="image/*" />
+        <input id="passportInput" type="file" accept="image/*,.pdf,application/pdf" />
         <img id="passportPreview" class="preview hidden" alt="Passport preview" />
       </div>
 
@@ -45,7 +45,7 @@
           <span class="material-symbols-outlined section-icon">description</span>
           Visa / Residence Image
         </h2>
-        <input id="visaInput" type="file" accept="image/*" />
+       <input id="visaInput" type="file" accept="image/*,.pdf,application/pdf" />
         <img id="visaPreview" class="preview hidden" alt="Visa preview" />
       </div>
     </section>
@@ -137,17 +137,23 @@
       </details>
     </section>
   </main>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script type="module">
+  import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+  window.pdfjsLib = pdfjsLib;
+</script>
 
-  <script src="validators/checkdigit.js"></script>
-  <script src="data/countries.js"></script>
-  <script src="name-parser.js"></script>
-  <script src="mrz-parser.js"></script>
-  <script src="document-classifier.js"></script>
-  <script src="parsers/schengen-parser.js"></script>
-  <script src="parsers/uae-visa-parser.js"></script>
+<script src="validators/checkdigit.js"></script>
+<script src="data/countries.js"></script>
+<script src="name-parser.js"></script>
+<script src="mrz-parser.js"></script>
+<script src="document-classifier.js"></script>
+<script src="parsers/schengen-parser.js"></script>
+<script src="parsers/uae-visa-parser.js"></script>
+<script src="pdf-reader.js"></script>
 
-  <script type="module" src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
