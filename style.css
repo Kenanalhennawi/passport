@@ -307,3 +307,27 @@ pre {
   color: #334155;
   font-size: 14px;
 }
+.material-symbols-outlined {
+  font-size: 20px;
+  vertical-align: middle;
+}
+
+.section-icon {
+  margin-right: 8px;
+  color: #f58220;
+}
+
+.primary-btn,
+.secondary-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.result-card h2,
+.upload-card h2,
+summary {
+  display: flex;
+  align-items: center;
+}
