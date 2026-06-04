@@ -452,7 +452,12 @@ removedNameNoiseTokens: name.removedNoiseTokens,
     typeof window.PVV.NameParser.parseMrzNameGlobal === "function"
   ) {
     const parsed = window.PVV.NameParser.parseMrzNameGlobal(nameZone);
-
+ nameZone,
+  {
+    visibleSurname,
+    visibleGiven
+  }
+);
    return {
   surname: parsed.surname,
   givenNames: parsed.givenNames,
