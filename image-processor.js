@@ -1,6 +1,19 @@
-export async function preprocessImageForOcr(fileOrDataUrl) {
-  const image = await loadImage(fileOrDataUrl);
+// image-processor.js
+import { correctOrientation } from "./orientation-corrector.js";
 
+export async function preprocessImageForOcr(fileOrDataUrl, options = {}) {
+  const { correctOrientation: shouldCorrect = true } = options;
+  
+  let imageDataUrl = fileOrDataUrl;
+  if (typeof fileOrDataUrl !== "string" && fileOrDataUrl.type?.startsWith("image/")) {
+    imageDataUrl = await fileToDataUrl(fileOrDataUrl);
+  }
+
+  if (shouldCorrect && window.PVV?.OrientationCorrector?.correctOrientation) {
+    imageDataUrl = await window.PVV.OrientationCorrector.correctOrientation(imageDataUrl);
+  }
+
+  const image = await loadImage(imageDataUrl);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
@@ -11,7 +24,6 @@ export async function preprocessImageForOcr(fileOrDataUrl) {
   canvas.height = Math.round(image.height * scale);
 
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-
   enhanceContrast(ctx, canvas.width, canvas.height);
 
   return canvas.toDataURL("image/png", 0.95);
@@ -24,13 +36,15 @@ export async function fileToOcrImageDataUrls(file, options = {}) {
 
   const maxPages = options.maxPages || 3;
   const scale = options.scale || 2.5;
+  const correctOrientationFlag = options.correctOrientation !== false;
 
   if (isPdfFile(file)) {
-    return await pdfToImageDataUrls(file, maxPages, scale);
+    return await pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag);
   }
 
   if (file.type && file.type.startsWith("image/")) {
-    return [await fileToDataUrl(file)];
+    const processed = await preprocessImageForOcr(file, { correctOrientation: correctOrientationFlag });
+    return [processed];
   }
 
   throw new Error("Unsupported file type. Please upload an image or PDF.");
@@ -40,7 +54,7 @@ function isPdfFile(file) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-async function pdfToImageDataUrls(file, maxPages, scale) {
+async function pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag = true) {
   if (!window.pdfjsLib) {
     throw new Error("PDF engine is not loaded. Check PDF.js script in index.html.");
   }
@@ -69,7 +83,11 @@ async function pdfToImageDataUrls(file, maxPages, scale) {
       viewport
     }).promise;
 
-    images.push(canvas.toDataURL("image/png", 1));
+    let dataUrl = canvas.toDataURL("image/png", 1);
+    if (correctOrientationFlag && window.PVV?.OrientationCorrector?.correctOrientation) {
+      dataUrl = await window.PVV.OrientationCorrector.correctOrientation(dataUrl);
+    }
+    images.push(dataUrl);
   }
 
   if (!images.length) {
