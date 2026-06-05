@@ -6,13 +6,14 @@
   const CHECK = window.PVV.CheckDigit;
   const COUNTRIES = window.PVV.Countries;
 
-  const MRZ_SEPARATOR_CORRUPTION_PATTERNS = [
-    { pattern: /SS+/g, replacement: "<<" },
-    { pattern: /LL+/g, replacement: "<<" },
-    { pattern: /KK+/g, replacement: "<<" },
-    { pattern: /II{2,}/g, replacement: "<<" },
-    { pattern: /ZZ+/g, replacement: "<<" }
-  ];
+ const MRZ_SEPARATOR_CORRUPTION_PATTERNS = [
+  { pattern: /SS+/g, replacement: "<<" },
+  { pattern: /LL+/g, replacement: "<<" },
+  { pattern: /KK+/g, replacement: "<<" },
+  { pattern: /II{2,}/g, replacement: "<<" },
+  { pattern: /ZZ+/g, replacement: "<<" },
+  { pattern: /C{2,}/g, replacement: "<<" }
+];
 
   const GENDER_MAP = {
     M: "MALE",
