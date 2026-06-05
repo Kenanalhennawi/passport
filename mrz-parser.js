@@ -6,7 +6,7 @@
   const CHECK = window.PVV.CheckDigit;
   const COUNTRIES = window.PVV.Countries;
 
-  const MAX_VARIANTS_PER_LINE = 8;
+  const MAX_VARIANTS_PER_LINE = 24;
 
   const GENDER_MAP = {
     M: "MALE",
@@ -27,7 +27,32 @@
     G: "6"
   };
 
-  const MRZ_BRACKET_CHARS = /«|‹|≤|\{|\}|\[|\]|\(|\)|\||¦|!|\/|\\/g;
+  const BRACKET_LIKE_CHARS = /«|‹|≤|\{|\}|\[|\]|\(|\)|\||¦|!|\/|\\/g;
+
+  const VISUAL_ZONE_NOISE_WORDS = [
+    "SIGNATURE",
+    "SIGHATURE",
+    "DATE",
+    "ISSUE",
+    "EXPIRY",
+    "EXPIRATION",
+    "PLACE",
+    "FATHER",
+    "MOTHER",
+    "PROFESSION",
+    "OCCUPATION",
+    "REPUBLIC",
+    "PASSEPORT",
+    "PASSPORT",
+    "SURNAME",
+    "GIVEN",
+    "PRENOM",
+    "NOM",
+    "BIRTH",
+    "CENTER",
+    "CENTRE",
+    "AUTHORITY"
+  ];
 
   function parse(rawOcrText) {
     try {
@@ -37,7 +62,7 @@
 
       if (!best) {
         return emptyResult({
-          warnings: ["MRZ not found. Visual text parser should be used as fallback."],
+          warnings: ["MRZ not found or all MRZ candidates were rejected by validation."],
           rawOcrText,
           mrzRaw: rawLines,
           mrzCleaned: []
@@ -77,14 +102,14 @@
     return String(line || "")
       .toUpperCase()
       .replace(/\s+/g, "")
-      .replace(MRZ_BRACKET_CHARS, "<")
+      .replace(BRACKET_LIKE_CHARS, "<")
       .replace(/[^A-Z0-9<]/g, "");
   }
 
   function isLikelyMrzFragment(line) {
     const value = String(line || "");
 
-    if (value.includes("<")) return true;
+    if (value.includes("<") && value.length >= 20) return true;
     if (/^[A-Z][A-Z0-9<][A-Z0-9<]{3}/.test(value) && value.length >= 25) return true;
     if (/[A-Z]{3}[0-9OBISZGL]{6}[0-9OBISZGL][MFX<][0-9OBISZGL]{6}/.test(value)) return true;
     if (/[0-9OBISZGL]{6}[0-9OBISZGL][MFX<][0-9OBISZGL]{6}/.test(value)) return true;
@@ -100,65 +125,87 @@
       const next = rawLines[i + 1] || "";
       const third = rawLines[i + 2] || "";
 
-      const td3Line1Variants = buildLineVariants(current, 44, "TD3_LINE1");
-      const td3Line2Variants = buildLineVariants(next, 44, "TD3_LINE2");
-
-      for (const line1 of td3Line1Variants) {
-        for (const line2 of td3Line2Variants) {
-          const lines = [line1, line2];
-
-          if (looksLikeTD3(lines)) {
-            candidates.push({
-              format: "TD3",
-              raw: [current, next],
-              lines,
-              score: scoreTD3(lines)
-            });
-          }
-        }
-      }
-
-      const td2Line1Variants = buildLineVariants(current, 36, "TD2_LINE1");
-      const td2Line2Variants = buildLineVariants(next, 36, "TD2_LINE2");
-
-      for (const line1 of td2Line1Variants) {
-        for (const line2 of td2Line2Variants) {
-          const lines = [line1, line2];
-
-          if (looksLikeTD2(lines)) {
-            candidates.push({
-              format: "TD2",
-              raw: [current, next],
-              lines,
-              score: scoreTD2(lines)
-            });
-          }
-        }
-      }
-
-      const td1Line1Variants = buildLineVariants(current, 30, "TD1_LINE1");
-      const td1Line2Variants = buildLineVariants(next, 30, "TD1_LINE2");
-      const td1Line3Variants = buildLineVariants(third, 30, "TD1_LINE3");
-
-      for (const line1 of td1Line1Variants) {
-        for (const line2 of td1Line2Variants) {
-          for (const line3 of td1Line3Variants) {
-            const lines = [line1, line2, line3];
-
-            if (looksLikeTD1(lines)) {
-              candidates.push({
-                format: "TD1",
-                raw: [current, next, third],
-                lines,
-                score: scoreTD1(lines)
-              });
-            }
-          }
-        }
-      }
+      buildTD3Candidates(candidates, current, next);
+      buildTD2Candidates(candidates, current, next);
+      buildTD1Candidates(candidates, current, next, third);
     }
 
     return candidates;
+  }
+
+  function buildTD3Candidates(candidates, rawLine1, rawLine2) {
+    const line1Variants = buildLineVariants(rawLine1, 44, "TD3_LINE1");
+    const line2Variants = buildLineVariants(rawLine2, 44, "TD3_LINE2");
+
+    for (const line1 of line1Variants) {
+      for (const line2 of line2Variants) {
+        const lines = [line1, line2];
+
+        if (!looksLikeTD3(lines)) continue;
+
+        const metrics = evaluateTD3(lines, [rawLine1, rawLine2]);
+        const score = scoreTD3(lines, metrics);
+
+        candidates.push({
+          format: "TD3",
+          raw: [rawLine1, rawLine2],
+          lines,
+          score,
+          metrics
+        });
+      }
+    }
+  }
+
+  function buildTD2Candidates(candidates, rawLine1, rawLine2) {
+    const line1Variants = buildLineVariants(rawLine1, 36, "TD2_LINE1");
+    const line2Variants = buildLineVariants(rawLine2, 36, "TD2_LINE2");
+
+    for (const line1 of line1Variants) {
+      for (const line2 of line2Variants) {
+        const lines = [line1, line2];
+
+        if (!looksLikeTD2(lines)) continue;
+
+        const metrics = evaluateTD2(lines, [rawLine1, rawLine2]);
+        const score = scoreTD2(lines, metrics);
+
+        candidates.push({
+          format: "TD2",
+          raw: [rawLine1, rawLine2],
+          lines,
+          score,
+          metrics
+        });
+      }
+    }
+  }
+
+  function buildTD1Candidates(candidates, rawLine1, rawLine2, rawLine3) {
+    const line1Variants = buildLineVariants(rawLine1, 30, "TD1_LINE1");
+    const line2Variants = buildLineVariants(rawLine2, 30, "TD1_LINE2");
+    const line3Variants = buildLineVariants(rawLine3, 30, "TD1_LINE3");
+
+    for (const line1 of line1Variants) {
+      for (const line2 of line2Variants) {
+        for (const line3 of line3Variants) {
+          const lines = [line1, line2, line3];
+
+          if (!looksLikeTD1(lines)) continue;
+
+          const metrics = evaluateTD1(lines, [rawLine1, rawLine2, rawLine3]);
+          const score = scoreTD1(lines, metrics);
+
+          candidates.push({
+            format: "TD1",
+            raw: [rawLine1, rawLine2, rawLine3],
+            lines,
+            score,
+            metrics
+          });
+        }
+      }
+    }
   }
 
   function buildLineVariants(rawLine, targetLength, role) {
@@ -167,34 +214,88 @@
 
     addVariant(variants, normalizeLength(raw, targetLength));
 
-    if (role === "TD3_LINE1" || role === "TD2_LINE1" || role === "TD1_LINE3") {
-      const nameLike = repairNameLine(raw, targetLength);
-      addVariant(variants, nameLike);
-
-      const conservative = repairNameLineConservative(raw, targetLength);
-      addVariant(variants, conservative);
-
-      const aggressive = repairNameLineAggressive(raw, targetLength);
-      addVariant(variants, aggressive);
+    if (isNameLineRole(role)) {
+      addVariant(variants, repairNameLineBalanced(raw, targetLength));
+      addVariant(variants, repairNameLineConservative(raw, targetLength));
+      addVariant(variants, repairNameLineAggressive(raw, targetLength));
     }
 
     if (role === "TD3_LINE2") {
-      addVariant(variants, repairTD3DataLine(raw, targetLength));
+      buildDataLineVariants(variants, raw, targetLength, "TD3");
     }
 
     if (role === "TD2_LINE2") {
-      addVariant(variants, repairTD2DataLine(raw, targetLength));
+      buildDataLineVariants(variants, raw, targetLength, "TD2");
     }
 
     if (role === "TD1_LINE1") {
       addVariant(variants, repairTD1Line1(raw, targetLength));
+      addDeletionVariants(variants, raw, targetLength, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     }
 
     if (role === "TD1_LINE2") {
       addVariant(variants, repairTD1Line2(raw, targetLength));
+      addDeletionVariants(variants, raw, targetLength, [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]);
     }
 
     return variants.slice(0, MAX_VARIANTS_PER_LINE);
+  }
+
+  function isNameLineRole(role) {
+    return role === "TD3_LINE1" || role === "TD2_LINE1" || role === "TD1_LINE3";
+  }
+
+  function buildDataLineVariants(variants, raw, targetLength, format) {
+    addVariant(variants, repairDataLine(raw, targetLength, format));
+
+    const usefulPositions = format === "TD3"
+      ? buildDeletionPositionsForTD3(raw)
+      : buildDeletionPositionsForTD2(raw);
+
+    addDeletionVariants(variants, raw, targetLength, usefulPositions);
+
+    if (raw.length > targetLength) {
+      for (let i = 0; i < raw.length; i += 1) {
+        const deleted = raw.slice(0, i) + raw.slice(i + 1);
+        addVariant(variants, repairDataLine(deleted, targetLength, format));
+      }
+    }
+  }
+
+  function buildDeletionPositionsForTD3(raw) {
+    const positions = [];
+
+    for (let i = 0; i < raw.length; i += 1) {
+      if (i >= 10 && i <= 20) positions.push(i);
+      if (i >= 21 && i <= 31) positions.push(i);
+      if (i >= 32 && i <= 44) positions.push(i);
+    }
+
+    return positions;
+  }
+
+  function buildDeletionPositionsForTD2(raw) {
+    const positions = [];
+
+    for (let i = 0; i < raw.length; i += 1) {
+      if (i >= 10 && i <= 20) positions.push(i);
+      if (i >= 21 && i <= 35) positions.push(i);
+    }
+
+    return positions;
+  }
+
+  function addDeletionVariants(variants, raw, targetLength, positions) {
+    const source = normalizeRawOcrLine(raw);
+
+    if (source.length <= targetLength) return;
+
+    for (const position of positions) {
+      if (position < 0 || position >= source.length) continue;
+
+      const deleted = source.slice(0, position) + source.slice(position + 1);
+      addVariant(variants, normalizeLength(deleted, targetLength));
+    }
   }
 
   function addVariant(list, value) {
@@ -209,7 +310,7 @@
     let line = String(value || "")
       .toUpperCase()
       .replace(/\s+/g, "")
-      .replace(MRZ_BRACKET_CHARS, "<")
+      .replace(BRACKET_LIKE_CHARS, "<")
       .replace(/[^A-Z0-9<]/g, "");
 
     if (line.length > targetLength) line = line.slice(0, targetLength);
@@ -217,7 +318,7 @@
     return line.padEnd(targetLength, "<");
   }
 
-  function repairNameLine(rawLine, targetLength) {
+  function repairNameLineBalanced(rawLine, targetLength) {
     const value = normalizeRawOcrLine(rawLine);
 
     if (value.length < 5) return normalizeLength(value, targetLength);
@@ -278,30 +379,27 @@
     });
 
     zone = zone.replace(/[<KLISZC]{7,}$/g, "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-
     zone = zone.replace(/<{3,}/g, "<<");
 
     return zone;
   }
 
-  function repairTD3DataLine(rawLine, targetLength) {
+  function repairDataLine(rawLine, targetLength, format) {
     let line = normalizeLength(rawLine, targetLength);
 
-    line = replaceRange(line, 9, 10, forceDigits(line.slice(9, 10)));
-    line = replaceRange(line, 13, 20, forceDigits(line.slice(13, 20)));
-    line = replaceRange(line, 21, 28, forceDigits(line.slice(21, 28)));
-    line = replaceRange(line, 43, 44, forceDigits(line.slice(43, 44)));
+    if (format === "TD3") {
+      line = replaceRange(line, 9, 10, forceDigits(line.slice(9, 10)));
+      line = replaceRange(line, 13, 20, forceDigits(line.slice(13, 20)));
+      line = replaceRange(line, 21, 28, forceDigits(line.slice(21, 28)));
+      line = replaceRange(line, 43, 44, forceDigits(line.slice(43, 44)));
+    }
 
-    return normalizeLength(line, targetLength);
-  }
-
-  function repairTD2DataLine(rawLine, targetLength) {
-    let line = normalizeLength(rawLine, targetLength);
-
-    line = replaceRange(line, 9, 10, forceDigits(line.slice(9, 10)));
-    line = replaceRange(line, 13, 20, forceDigits(line.slice(13, 20)));
-    line = replaceRange(line, 21, 28, forceDigits(line.slice(21, 28)));
-    line = replaceRange(line, 35, 36, forceDigits(line.slice(35, 36)));
+    if (format === "TD2") {
+      line = replaceRange(line, 9, 10, forceDigits(line.slice(9, 10)));
+      line = replaceRange(line, 13, 20, forceDigits(line.slice(13, 20)));
+      line = replaceRange(line, 21, 28, forceDigits(line.slice(21, 28)));
+      line = replaceRange(line, 35, 36, forceDigits(line.slice(35, 36)));
+    }
 
     return normalizeLength(line, targetLength);
   }
@@ -333,7 +431,8 @@
 
   function replaceRange(value, start, end, replacement) {
     const source = String(value || "");
-    const cleanReplacement = String(replacement || "").slice(0, end - start).padEnd(end - start, "<");
+    const length = end - start;
+    const cleanReplacement = String(replacement || "").slice(0, length).padEnd(length, "<");
 
     return source.slice(0, start) + cleanReplacement + source.slice(end);
   }
@@ -341,7 +440,46 @@
   function selectBestCandidate(candidates) {
     if (!Array.isArray(candidates) || !candidates.length) return null;
 
-    return candidates.sort((a, b) => b.score - a.score)[0];
+    const acceptable = candidates
+      .filter(isAcceptableCandidate)
+      .sort((a, b) => b.score - a.score);
+
+    return acceptable[0] || null;
+  }
+
+  function isAcceptableCandidate(candidate) {
+    if (!candidate || !candidate.metrics) return false;
+
+    const metrics = candidate.metrics;
+    const score = Number(candidate.score || 0);
+
+    if (metrics.visualNoise) return false;
+    if (metrics.allChecksFailed) return false;
+    if (metrics.invalidDate) return false;
+
+    if (candidate.format === "TD1") {
+      if (score < 80) return false;
+      if (metrics.validChecks < 2) return false;
+      if (metrics.unknownIssuingCountry) return false;
+      if (metrics.unknownNationality) return false;
+      if (metrics.unknownDocumentType) return false;
+    }
+
+    if (candidate.format === "TD2") {
+      if (score < 70) return false;
+      if (metrics.validChecks < 2) return false;
+      if (metrics.unknownIssuingCountry && score < 95) return false;
+      if (metrics.unknownDocumentType && score < 95) return false;
+    }
+
+    if (candidate.format === "TD3") {
+      if (score < 70) return false;
+      if (metrics.validChecks < 2) return false;
+      if (metrics.unknownIssuingCountry && score < 95) return false;
+      if (metrics.unknownDocumentType && score < 95) return false;
+    }
+
+    return true;
   }
 
   function looksLikeTD3(lines) {
@@ -369,51 +507,189 @@
       /\d{6}/.test(lines[1].slice(8, 14));
   }
 
-  function scoreTD3(lines) {
+  function evaluateTD3(lines, rawLines) {
     const line1 = lines[0];
     const line2 = lines[1];
-    let score = 0;
 
-    if (/^[A-Z][A-Z<][A-Z]{3}/.test(line1)) score += 15;
-    if (line1.includes("<<")) score += 30;
-    if (CHECK.validate(line2.slice(0, 9), line2[9])) score += 25;
-    if (CHECK.validate(line2.slice(13, 19), line2[19])) score += 25;
-    if (CHECK.validate(line2.slice(21, 27), line2[27])) score += 25;
-    if (validateTD3Composite(line2)) score += 25;
-    if (["M", "F", "X", "<"].includes(line2[20])) score += 10;
+    const docNumberValid = safeValidate(line2.slice(0, 9), line2[9]);
+    const dobValid = safeValidate(line2.slice(13, 19), line2[19]);
+    const expiryValid = safeValidate(line2.slice(21, 27), line2[27]);
+    const compositeValid = validateTD3Composite(line2);
 
-    return score;
+    const dobISO = mrzDateToISO(line2.slice(13, 19), "birth");
+    const expiryISO = mrzDateToISO(line2.slice(21, 27), "expiry");
+
+    const documentType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
+    const issuingCode = line1.slice(2, 5).replace(/</g, "");
+    const nationalityCode = line2.slice(10, 13).replace(/</g, "");
+
+    const validChecks = countTrue([docNumberValid, dobValid, expiryValid, compositeValid]);
+
+    return {
+      validChecks,
+      allChecksFailed: validChecks === 0,
+      docNumberValid,
+      dobValid,
+      expiryValid,
+      compositeValid,
+      invalidDate: !isValidISODate(dobISO, "birth") || !isValidISODate(expiryISO, "expiry"),
+      unknownDocumentType: documentType.type === "UNKNOWN",
+      unknownIssuingCountry: !COUNTRIES.isKnownCode(issuingCode),
+      unknownNationality: !COUNTRIES.isKnownCode(nationalityCode),
+      visualNoise: containsVisualZoneNoise(rawLines),
+      genderValid: ["M", "F", "X", "<"].includes(line2[20])
+    };
   }
 
-  function scoreTD2(lines) {
+  function evaluateTD2(lines, rawLines) {
     const line1 = lines[0];
     const line2 = lines[1];
-    let score = 0;
 
-    if (/^[A-Z][A-Z<][A-Z]{3}/.test(line1)) score += 15;
-    if (line1.includes("<<")) score += 25;
-    if (CHECK.validate(line2.slice(0, 9), line2[9])) score += 20;
-    if (CHECK.validate(line2.slice(13, 19), line2[19])) score += 20;
-    if (CHECK.validate(line2.slice(21, 27), line2[27])) score += 20;
-    if (validateTD2Composite(line2)) score += 20;
+    const docNumberValid = safeValidate(line2.slice(0, 9), line2[9]);
+    const dobValid = safeValidate(line2.slice(13, 19), line2[19]);
+    const expiryValid = safeValidate(line2.slice(21, 27), line2[27]);
+    const compositeValid = validateTD2Composite(line2);
 
-    return score;
+    const dobISO = mrzDateToISO(line2.slice(13, 19), "birth");
+    const expiryISO = mrzDateToISO(line2.slice(21, 27), "expiry");
+
+    const documentType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
+    const issuingCode = line1.slice(2, 5).replace(/</g, "");
+    const nationalityCode = line2.slice(10, 13).replace(/</g, "");
+
+    const validChecks = countTrue([docNumberValid, dobValid, expiryValid, compositeValid]);
+
+    return {
+      validChecks,
+      allChecksFailed: validChecks === 0,
+      docNumberValid,
+      dobValid,
+      expiryValid,
+      compositeValid,
+      invalidDate: !isValidISODate(dobISO, "birth") || !isValidISODate(expiryISO, "expiry"),
+      unknownDocumentType: documentType.type === "UNKNOWN",
+      unknownIssuingCountry: !COUNTRIES.isKnownCode(issuingCode),
+      unknownNationality: !COUNTRIES.isKnownCode(nationalityCode),
+      visualNoise: containsVisualZoneNoise(rawLines),
+      genderValid: ["M", "F", "X", "<"].includes(line2[20])
+    };
   }
 
-  function scoreTD1(lines) {
+  function evaluateTD1(lines, rawLines) {
     const line1 = lines[0];
     const line2 = lines[1];
     const line3 = lines[2];
+
+    const docNumberValid = safeValidate(line1.slice(5, 14), line1[14]);
+    const dobValid = safeValidate(line2.slice(0, 6), line2[6]);
+    const expiryValid = safeValidate(line2.slice(8, 14), line2[14]);
+    const compositeValid = validateTD1Composite(line1, line2, line3);
+
+    const dobISO = mrzDateToISO(line2.slice(0, 6), "birth");
+    const expiryISO = mrzDateToISO(line2.slice(8, 14), "expiry");
+
+    const documentType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
+    const issuingCode = line1.slice(2, 5).replace(/</g, "");
+    const nationalityCode = line2.slice(15, 18).replace(/</g, "");
+
+    const validChecks = countTrue([docNumberValid, dobValid, expiryValid, compositeValid]);
+
+    return {
+      validChecks,
+      allChecksFailed: validChecks === 0,
+      docNumberValid,
+      dobValid,
+      expiryValid,
+      compositeValid,
+      invalidDate: !isValidISODate(dobISO, "birth") || !isValidISODate(expiryISO, "expiry"),
+      unknownDocumentType: documentType.type === "UNKNOWN",
+      unknownIssuingCountry: !COUNTRIES.isKnownCode(issuingCode),
+      unknownNationality: !COUNTRIES.isKnownCode(nationalityCode),
+      visualNoise: containsVisualZoneNoise(rawLines),
+      genderValid: ["M", "F", "X", "<"].includes(line2[7])
+    };
+  }
+
+  function scoreTD3(lines, metrics) {
+    const line1 = lines[0];
     let score = 0;
 
-    if (/^[A-Z][A-Z<][A-Z]{3}/.test(line1)) score += 15;
-    if (line3.includes("<<")) score += 25;
-    if (CHECK.validate(line1.slice(5, 14), line1[14])) score += 20;
-    if (CHECK.validate(line2.slice(0, 6), line2[6])) score += 20;
-    if (CHECK.validate(line2.slice(8, 14), line2[14])) score += 20;
-    if (validateTD1Composite(line1, line2, line3)) score += 20;
+    if (/^[A-Z][A-Z<][A-Z]{3}/.test(line1)) score += 10;
+    if (line1.includes("<<")) score += 20;
+    if (metrics.docNumberValid) score += 25;
+    if (metrics.dobValid) score += 25;
+    if (metrics.expiryValid) score += 25;
+    if (metrics.compositeValid) score += 30;
+    if (metrics.genderValid) score += 5;
+    if (!metrics.unknownDocumentType) score += 10;
+    if (!metrics.unknownIssuingCountry) score += 10;
+    if (!metrics.unknownNationality) score += 10;
+    if (metrics.invalidDate) score -= 40;
+    if (metrics.visualNoise) score -= 80;
+    if (metrics.allChecksFailed) score -= 100;
 
-    return score;
+    return Math.max(0, score);
+  }
+
+  function scoreTD2(lines, metrics) {
+    const line1 = lines[0];
+    let score = 0;
+
+    if (/^[A-Z][A-Z<][A-Z]{3}/.test(line1)) score += 10;
+    if (line1.includes("<<")) score += 20;
+    if (metrics.docNumberValid) score += 20;
+    if (metrics.dobValid) score += 20;
+    if (metrics.expiryValid) score += 20;
+    if (metrics.compositeValid) score += 25;
+    if (metrics.genderValid) score += 5;
+    if (!metrics.unknownDocumentType) score += 10;
+    if (!metrics.unknownIssuingCountry) score += 10;
+    if (!metrics.unknownNationality) score += 10;
+    if (metrics.invalidDate) score -= 40;
+    if (metrics.visualNoise) score -= 80;
+    if (metrics.allChecksFailed) score -= 100;
+
+    return Math.max(0, score);
+  }
+
+  function scoreTD1(lines, metrics) {
+    const line1 = lines[0];
+    const line3 = lines[2];
+    let score = 0;
+
+    if (/^[A-Z][A-Z<][A-Z]{3}/.test(line1)) score += 10;
+    if (line3.includes("<<")) score += 15;
+    if (metrics.docNumberValid) score += 20;
+    if (metrics.dobValid) score += 20;
+    if (metrics.expiryValid) score += 20;
+    if (metrics.compositeValid) score += 25;
+    if (metrics.genderValid) score += 5;
+    if (!metrics.unknownDocumentType) score += 10;
+    if (!metrics.unknownIssuingCountry) score += 10;
+    if (!metrics.unknownNationality) score += 10;
+    if (metrics.invalidDate) score -= 40;
+    if (metrics.visualNoise) score -= 100;
+    if (metrics.allChecksFailed) score -= 100;
+
+    return Math.max(0, score);
+  }
+
+  function containsVisualZoneNoise(rawLines) {
+    const joined = String((rawLines || []).join(" ")).toUpperCase();
+
+    return VISUAL_ZONE_NOISE_WORDS.some((word) => joined.includes(word));
+  }
+
+  function safeValidate(value, digit) {
+    try {
+      return Boolean(CHECK.validate(value, digit));
+    } catch {
+      return false;
+    }
+  }
+
+  function countTrue(values) {
+    return values.filter(Boolean).length;
   }
 
   function parseTD3(candidate, rawOcrText) {
@@ -444,7 +720,6 @@
     const docType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(10, 13).replace(/</g, "");
-
     const name = parseName(line1.slice(5));
 
     if (name.nameWarnings && name.nameWarnings.length) {
@@ -504,7 +779,6 @@
     const docType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(10, 13).replace(/</g, "");
-
     const name = parseName(line1.slice(5));
 
     if (name.nameWarnings && name.nameWarnings.length) {
@@ -565,7 +839,6 @@
     const docType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(15, 18).replace(/</g, "");
-
     const name = parseName(line3);
 
     if (name.nameWarnings && name.nameWarnings.length) {
@@ -680,7 +953,7 @@
       line2.slice(13, 20) +
       line2.slice(21, 43);
 
-    return CHECK.validate(compositeField, line2[43]);
+    return safeValidate(compositeField, line2[43]);
   }
 
   function validateTD2Composite(line2) {
@@ -691,7 +964,7 @@
       line2.slice(13, 20) +
       line2.slice(21, 35);
 
-    return CHECK.validate(compositeField, line2[35]);
+    return safeValidate(compositeField, line2[35]);
   }
 
   function validateTD1Composite(line1, line2, line3) {
@@ -701,7 +974,7 @@
       line2.slice(8, 15) +
       line2.slice(18, 29);
 
-    return CHECK.validate(compositeField, line2[29] || line3[29]);
+    return safeValidate(compositeField, line2[29] || line3[29]);
   }
 
   function mapDocumentType(code) {
@@ -754,6 +1027,36 @@
     }
 
     return `${century + yy}-${mm}-${dd}`;
+  }
+
+  function isValidISODate(value, mode) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+    const year = Number(value.slice(0, 4));
+    const month = Number(value.slice(5, 7));
+    const day = Number(value.slice(8, 10));
+
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > 31) return false;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return false;
+
+    if (date.getUTCFullYear() !== year) return false;
+    if (date.getUTCMonth() + 1 !== month) return false;
+    if (date.getUTCDate() !== day) return false;
+
+    const currentYear = new Date().getFullYear();
+
+    if (mode === "birth") {
+      if (year < 1900 || year > currentYear) return false;
+    }
+
+    if (mode === "expiry") {
+      if (year < currentYear - 30 || year > currentYear + 30) return false;
+    }
+
+    return true;
   }
 
   function expiryStatus(expiryDate) {
