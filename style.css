@@ -331,3 +331,27 @@ summary {
   display: flex;
   align-items: center;
 }
+.page-selector {
+  margin-top: 12px;
+  padding: 8px;
+  background: #f0f4f9;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.page-selector label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #003b7a;
+}
+.page-selector select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+.page-selector .info {
+  font-size: 12px;
+  color: #6b7280;
+}
