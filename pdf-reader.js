@@ -4,6 +4,15 @@
 
   window.PVV = window.PVV || {};
 
+  /**
+   * Convert a file (image or PDF) to an array of image data URLs.
+   * @param {File} file
+   * @param {object} options
+   * @param {number} options.maxPages - Max pages to read (default 5)
+   * @param {number} options.scale - PDF render scale (default 2.5)
+   * @param {number[]} options.pageNumbers - Array of 1‑based page numbers to extract (e.g., [2]). If empty, process all up to maxPages.
+   * @returns {Promise<string[]>}
+   */
   async function fileToImageDataUrls(file, options = {}) {
     const maxPages = options.maxPages || 5;
     const scale = options.scale || 2.5;
@@ -24,6 +33,11 @@
     throw new Error("Unsupported file type. Please upload an image or PDF.");
   }
 
+  /**
+   * Convert an image file to a data URL.
+   * @param {File} file
+   * @returns {Promise<string>}
+   */
   function imageFileToDataUrl(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -33,6 +47,14 @@
     });
   }
 
+  /**
+   * Convert a PDF file to an array of image data URLs for selected pages.
+   * @param {File} file
+   * @param {number} maxPages
+   * @param {number} scale
+   * @param {number[]} pageNumbers
+   * @returns {Promise<string[]>}
+   */
   async function pdfToImages(file, maxPages, scale, pageNumbers) {
     if (!window.pdfjsLib) {
       throw new Error("PDF engine is not loaded.");
@@ -47,7 +69,7 @@
       pagesToProcess = pageNumbers
         .map(p => Number(p))
         .filter(p => p >= 1 && p <= totalPages && p <= maxPages);
-      pagesToProcess = [...new Set(pagesToProcess)].sort((a,b) => a - b);
+      pagesToProcess = [...new Set(pagesToProcess)].sort((a, b) => a - b);
     } else {
       const limit = Math.min(totalPages, maxPages);
       for (let i = 1; i <= limit; i++) pagesToProcess.push(i);
