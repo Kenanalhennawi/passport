@@ -1,3 +1,4 @@
+// visa-reader.js
 import {
   preprocessImageForOcr,
   fileToOcrImageDataUrls
@@ -11,7 +12,8 @@ export async function readVisaDocument(file, onProgress = () => {}) {
 
     const pages = await fileToOcrImageDataUrls(file, {
       maxPages: 3,
-      scale: 2.5
+      scale: 2.5,
+      correctOrientation: true   // <-- added
     });
 
     if (!pages.length) {
@@ -24,7 +26,7 @@ export async function readVisaDocument(file, onProgress = () => {}) {
       const pageStart = 0.05 + i * (0.85 / pages.length);
       const pageRange = 0.85 / pages.length;
 
-      const processedImage = await preprocessImageForOcr(pages[i]);
+      const processedImage = await preprocessImageForOcr(pages[i], { correctOrientation: true });
 
       onProgress(pageStart + pageRange * 0.15);
 
