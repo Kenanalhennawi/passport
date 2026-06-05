@@ -1,3 +1,4 @@
+// app.js
 import { readPassport } from "./passport-reader.js";
 import { readVisaDocument } from "./visa-reader.js";
 import { compareDocuments } from "./compare-engine.js";
@@ -26,15 +27,23 @@ const progressMessage = document.getElementById("progressMessage");
 let passportFile = null;
 let visaFile = null;
 
+// Page selector elements
+const passportPageSelectorDiv = document.getElementById("passportPageSelector");
+const visaPageSelectorDiv = document.getElementById("visaPageSelector");
+const passportPageSelect = document.getElementById("passportPageSelect");
+const visaPageSelect = document.getElementById("visaPageSelect");
+
 function initApp() {
   passportInput.addEventListener("change", () => {
     passportFile = passportInput.files[0] || null;
     showPreview(passportFile, passportPreview);
+    updatePageSelector(passportInput, passportPageSelect, passportPageSelectorDiv);
   });
 
   visaInput.addEventListener("change", () => {
     visaFile = visaInput.files[0] || null;
     showPreview(visaFile, visaPreview);
+    updatePageSelector(visaInput, visaPageSelect, visaPageSelectorDiv);
   });
 
   processBtn.addEventListener("click", () => {
@@ -85,11 +94,40 @@ function showPreview(file, imgElement) {
   reader.readAsDataURL(file);
 }
 
+function updatePageSelector(fileInput, selectElement, selectorDiv) {
+  const file = fileInput.files[0];
+  if (!file) {
+    selectorDiv.classList.add("hidden");
+    return;
+  }
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  if (isPdf) {
+    // Populate select with options: All pages (default), 1..5
+    selectElement.innerHTML = '<option value="all">All pages (up to 5)</option>';
+    for (let i = 1; i <= 5; i++) {
+      selectElement.innerHTML += `<option value="${i}">Page ${i}</option>`;
+    }
+    selectorDiv.classList.remove("hidden");
+  } else {
+    selectorDiv.classList.add("hidden");
+  }
+}
+
+function getSelectedPageNumbers(selectElement) {
+  const value = selectElement.value;
+  if (value === "all") return []; // empty array means process all up to maxPages
+  const pageNum = parseInt(value, 10);
+  return isNaN(pageNum) ? [] : [pageNum];
+}
+
 async function processDocuments() {
   if (!passportFile || !visaFile) {
     showStatus("Please upload both passport and visa/residence images.", "warning");
     return;
   }
+
+  const passportPageNumbers = getSelectedPageNumbers(passportPageSelect);
+  const visaPageNumbers = getSelectedPageNumbers(visaPageSelect);
 
   try {
     setBusy(true);
@@ -100,29 +138,15 @@ async function processDocuments() {
 
     const passportResult = await readPassport(passportFile, (progress) => {
       const percent = 5 + Math.round(progress * 40);
+      updateProgress(Math.min(45, percent), "Reading Passport", "Detecting MRZ and extracting passport data...");
+    }, { pageNumbers: passportPageNumbers });
 
-      updateProgress(
-        Math.min(45, percent),
-        "Reading Passport",
-        "Detecting MRZ and extracting passport data..."
-      );
-    });
-
-    updateProgress(
-      50,
-      "Passport Completed",
-      "Passport data extracted. Reading secondary document..."
-    );
+    updateProgress(50, "Passport Completed", "Passport data extracted. Reading secondary document...");
 
     const visaResult = await readVisaDocument(visaFile, (progress) => {
       const percent = 50 + Math.round(progress * 40);
-
-      updateProgress(
-        Math.min(90, percent),
-        "Reading Visa / Residence Document",
-        "Extracting document fields..."
-      );
-    });
+      updateProgress(Math.min(90, percent), "Reading Visa / Residence Document", "Extracting document fields...");
+    }, { pageNumbers: visaPageNumbers });
 
     updateProgress(94, "Comparing Documents", "Running field-by-field verification...");
 
@@ -295,6 +319,11 @@ function clearAll() {
   visaPreview.classList.add("hidden");
   passportPreview.removeAttribute("src");
   visaPreview.removeAttribute("src");
+
+  passportPageSelectorDiv.classList.add("hidden");
+  visaPageSelectorDiv.classList.add("hidden");
+  passportPageSelect.innerHTML = "";
+  visaPageSelect.innerHTML = "";
 
   passportDataBox.className = "data-table empty";
   visaDataBox.className = "data-table empty";
