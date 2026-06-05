@@ -303,3 +303,69 @@ function enhanceContrast(ctx, width, height) {
 function clamp(value) {
   return Math.max(0, Math.min(255, value));
 }
+export async function getPdfPageCount(file) {
+  if (!isPdfFile(file)) {
+    return 0;
+  }
+
+  await validatePdfMagic(file);
+
+  if (!window.pdfjsLib) {
+    throw new Error("PDF engine is not loaded. Check PDF.js script in index.html.");
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+
+  const pdf = await window.pdfjsLib.getDocument({
+    data: arrayBuffer
+  }).promise;
+
+  return pdf.numPages;
+}
+
+export async function renderPdfPageToImageDataUrl(file, pageNumber = 1, scale = 1.8) {
+  if (!isPdfFile(file)) {
+    throw new Error("Selected file is not a PDF.");
+  }
+
+  await validatePdfMagic(file);
+
+  if (!window.pdfjsLib) {
+    throw new Error("PDF engine is not loaded. Check PDF.js script in index.html.");
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+
+  const pdf = await window.pdfjsLib.getDocument({
+    data: arrayBuffer
+  }).promise;
+
+  const safePageNumber = Math.max(1, Math.min(pageNumber, pdf.numPages));
+  const page = await pdf.getPage(safePageNumber);
+  let viewport = page.getViewport({ scale });
+
+  let width = Math.round(viewport.width);
+  let height = Math.round(viewport.height);
+
+  if (width * height > MAX_CANVAS_PIXELS) {
+    const safeScale = Math.sqrt(MAX_CANVAS_PIXELS / (width * height)) * scale;
+    viewport = page.getViewport({ scale: safeScale });
+    width = Math.round(viewport.width);
+    height = Math.round(viewport.height);
+  }
+
+  protectCanvasSize(width, height);
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  canvas.width = width;
+  canvas.height = height;
+
+  await page.render({
+    canvasContext: ctx,
+    viewport
+  }).promise;
+
+  return canvas.toDataURL("image/png", 0.95);
+}
