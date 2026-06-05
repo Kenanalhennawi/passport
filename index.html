@@ -40,21 +40,33 @@
         <img id="passportPreview" class="preview hidden" alt="Passport preview" />
       </div>
 
-      <div class="upload-card">
-        <h2>
-          <span class="material-symbols-outlined section-icon">description</span>
-          Visa / Residence Image
-        </h2>
-       <input id="visaInput" type="file" accept="image/*,.pdf,application/pdf" />
-        <img id="visaPreview" class="preview hidden" alt="Visa preview" />
-      </div>
-    </section>
+    <div class="upload-card">
+  <h2>
+    <span class="material-symbols-outlined section-icon">badge</span>
+    Passport Image
+  </h2>
+  <input id="passportInput" type="file" accept="image/*,.pdf,application/pdf" />
+  <div id="passportPageSelector" class="page-selector hidden">
+    <label>Select page to scan:</label>
+    <select id="passportPageSelect"></select>
+    <span class="info">(PDF only, max 5 pages)</span>
+  </div>
+  <img id="passportPreview" class="preview hidden" alt="Passport preview" />
+</div>
 
-    <section id="progressPanel" class="progress-panel hidden">
-      <div class="progress-header">
-        <strong id="progressTitle">Processing...</strong>
-        <span id="progressPercent">0%</span>
-      </div>
+<div class="upload-card">
+  <h2>
+    <span class="material-symbols-outlined section-icon">description</span>
+    Visa / Residence Image
+  </h2>
+  <input id="visaInput" type="file" accept="image/*,.pdf,application/pdf" />
+  <div id="visaPageSelector" class="page-selector hidden">
+    <label>Select page to scan:</label>
+    <select id="visaPageSelect"></select>
+    <span class="info">(PDF only, max 5 pages)</span>
+  </div>
+  <img id="visaPreview" class="preview hidden" alt="Visa preview" />
+</div>
 
       <div class="progress-track">
         <div id="progressBar" class="progress-bar"></div>
