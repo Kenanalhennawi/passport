@@ -69,7 +69,7 @@ async function pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag 
     pagesToProcess = pageNumbers
       .map(p => Number(p))
       .filter(p => p >= 1 && p <= totalPages && p <= maxPages);
-    pagesToProcess = [...new Set(pagesToProcess)].sort((a,b) => a - b);
+    pagesToProcess = [...new Set(pagesToProcess)].sort((a, b) => a - b);
   } else {
     const limit = Math.min(totalPages, maxPages);
     for (let i = 1; i <= limit; i++) pagesToProcess.push(i);
