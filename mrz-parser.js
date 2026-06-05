@@ -6,7 +6,7 @@
   const CHECK = window.PVV.CheckDigit;
   const COUNTRIES = window.PVV.Countries;
 
-  const MAX_VARIANTS_PER_LINE = 24;
+  const MAX_VARIANTS_PER_LINE = 32;
 
   const GENDER_MAP = {
     M: "MALE",
@@ -47,6 +47,7 @@
     "SURNAME",
     "GIVEN",
     "PRENOM",
+    "PRNOM",
     "NOM",
     "BIRTH",
     "CENTER",
@@ -248,6 +249,10 @@
   function buildDataLineVariants(variants, raw, targetLength, format) {
     addVariant(variants, repairDataLine(raw, targetLength, format));
 
+    if (format === "TD3" || format === "TD2") {
+      addNationalityRealignmentVariants(variants, raw, targetLength, format);
+    }
+
     const usefulPositions = format === "TD3"
       ? buildDeletionPositionsForTD3(raw)
       : buildDeletionPositionsForTD2(raw);
@@ -257,6 +262,35 @@
     if (raw.length > targetLength) {
       for (let i = 0; i < raw.length; i += 1) {
         const deleted = raw.slice(0, i) + raw.slice(i + 1);
+        addVariant(variants, repairDataLine(deleted, targetLength, format));
+      }
+    }
+  }
+
+  function addNationalityRealignmentVariants(variants, raw, targetLength, format) {
+    const source = normalizeRawOcrLine(raw);
+
+    if (source.length <= targetLength) return;
+
+    const possibleNationality = source.slice(10, 13);
+    const possibleExtra = source[13];
+    const possibleDateAfterExtra = source.slice(14, 20);
+
+    if (
+      /^[A-Z]{3}$/.test(possibleNationality) &&
+      /^[A-Z]$/.test(possibleExtra || "") &&
+      /^[0-9OBISZGL]{6}$/.test(possibleDateAfterExtra)
+    ) {
+      const deleted = source.slice(0, 13) + source.slice(14);
+      addVariant(variants, repairDataLine(deleted, targetLength, format));
+    }
+
+    for (let position = 13; position <= 16; position += 1) {
+      const deleted = source.slice(0, position) + source.slice(position + 1);
+      const nationality = deleted.slice(10, 13);
+      const dob = forceDigits(deleted.slice(13, 19));
+
+      if (/^[A-Z]{3}$/.test(nationality) && /^\d{6}$/.test(dob)) {
         addVariant(variants, repairDataLine(deleted, targetLength, format));
       }
     }
@@ -295,6 +329,8 @@
 
       const deleted = source.slice(0, position) + source.slice(position + 1);
       addVariant(variants, normalizeLength(deleted, targetLength));
+      addVariant(variants, repairDataLine(deleted, targetLength, "TD3"));
+      addVariant(variants, repairDataLine(deleted, targetLength, "TD2"));
     }
   }
 
@@ -369,7 +405,15 @@
     zone = zone.replace(/[KLISZ]{3,}/g, "<<");
     zone = zone.replace(/C{3,}/g, "<<");
 
-    zone = zone.replace(/([A-Z])([<KLISZC]{2,})([A-Z])/g, (match, before, separator, after) => {
+    zone = zone.replace(/<([KLISZC])<C?([KLISZC]){2,}([A-Z]{2,})/g, function (match, firstNoise, repeatedNoise, rest) {
+      return `<<${repeatedNoise}${rest}`;
+    });
+
+    zone = zone.replace(/<C?([KLISZC]){2,}([A-Z]{2,})/g, function (match, repeatedNoise, rest) {
+      return `<<${repeatedNoise}${rest}`;
+    });
+
+    zone = zone.replace(/([A-Z])([<KLISZC]{2,})([A-Z])/g, function (match, before, separator, after) {
       if (separator.includes("<")) return `${before}<<${after}`;
       if (/^[KLISZ]{2,}$/.test(separator)) return `${before}<<${after}`;
       if (/^C{3,}$/.test(separator)) return `${before}<<${after}`;
@@ -425,7 +469,9 @@
   function forceDigits(value) {
     return String(value || "")
       .toUpperCase()
-      .replace(/[OQDILBSZG]/g, (char) => DIGIT_OCR_MAP[char] || char)
+      .replace(/[OQDILBSZG]/g, function (char) {
+        return DIGIT_OCR_MAP[char] || char;
+      })
       .replace(/</g, "0");
   }
 
@@ -442,7 +488,9 @@
 
     const acceptable = candidates
       .filter(isAcceptableCandidate)
-      .sort((a, b) => b.score - a.score);
+      .sort(function (a, b) {
+        return b.score - a.score;
+      });
 
     return acceptable[0] || null;
   }
@@ -522,6 +570,7 @@
     const documentType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(10, 13).replace(/</g, "");
+    const issuingMatchesNationality = Boolean(issuingCode && nationalityCode && issuingCode === nationalityCode);
 
     const validChecks = countTrue([docNumberValid, dobValid, expiryValid, compositeValid]);
 
@@ -536,6 +585,7 @@
       unknownDocumentType: documentType.type === "UNKNOWN",
       unknownIssuingCountry: !COUNTRIES.isKnownCode(issuingCode),
       unknownNationality: !COUNTRIES.isKnownCode(nationalityCode),
+      issuingMatchesNationality,
       visualNoise: containsVisualZoneNoise(rawLines),
       genderValid: ["M", "F", "X", "<"].includes(line2[20])
     };
@@ -556,6 +606,7 @@
     const documentType = mapDocumentType(line1.slice(0, 2).replace(/</g, ""));
     const issuingCode = line1.slice(2, 5).replace(/</g, "");
     const nationalityCode = line2.slice(10, 13).replace(/</g, "");
+    const issuingMatchesNationality = Boolean(issuingCode && nationalityCode && issuingCode === nationalityCode);
 
     const validChecks = countTrue([docNumberValid, dobValid, expiryValid, compositeValid]);
 
@@ -570,6 +621,7 @@
       unknownDocumentType: documentType.type === "UNKNOWN",
       unknownIssuingCountry: !COUNTRIES.isKnownCode(issuingCode),
       unknownNationality: !COUNTRIES.isKnownCode(nationalityCode),
+      issuingMatchesNationality,
       visualNoise: containsVisualZoneNoise(rawLines),
       genderValid: ["M", "F", "X", "<"].includes(line2[20])
     };
@@ -605,6 +657,7 @@
       unknownDocumentType: documentType.type === "UNKNOWN",
       unknownIssuingCountry: !COUNTRIES.isKnownCode(issuingCode),
       unknownNationality: !COUNTRIES.isKnownCode(nationalityCode),
+      issuingMatchesNationality: false,
       visualNoise: containsVisualZoneNoise(rawLines),
       genderValid: ["M", "F", "X", "<"].includes(line2[7])
     };
@@ -624,6 +677,7 @@
     if (!metrics.unknownDocumentType) score += 10;
     if (!metrics.unknownIssuingCountry) score += 10;
     if (!metrics.unknownNationality) score += 10;
+    if (metrics.issuingMatchesNationality) score += 30;
     if (metrics.invalidDate) score -= 40;
     if (metrics.visualNoise) score -= 80;
     if (metrics.allChecksFailed) score -= 100;
@@ -645,6 +699,7 @@
     if (!metrics.unknownDocumentType) score += 10;
     if (!metrics.unknownIssuingCountry) score += 10;
     if (!metrics.unknownNationality) score += 10;
+    if (metrics.issuingMatchesNationality) score += 30;
     if (metrics.invalidDate) score -= 40;
     if (metrics.visualNoise) score -= 80;
     if (metrics.allChecksFailed) score -= 100;
@@ -677,7 +732,9 @@
   function containsVisualZoneNoise(rawLines) {
     const joined = String((rawLines || []).join(" ")).toUpperCase();
 
-    return VISUAL_ZONE_NOISE_WORDS.some((word) => joined.includes(word));
+    return VISUAL_ZONE_NOISE_WORDS.some(function (word) {
+      return joined.includes(word);
+    });
   }
 
   function safeValidate(value, digit) {
@@ -876,11 +933,9 @@
     return {
       value: result.value,
       valid: result.valid,
-      corrections: result.corrections.map(() => CHECK.correctionRecord(
-        field,
-        value,
-        result.value
-      ))
+      corrections: result.corrections.map(function () {
+        return CHECK.correctionRecord(field, value, result.value);
+      })
     };
   }
 
