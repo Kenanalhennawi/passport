@@ -2,7 +2,7 @@ import { correctOrientation } from "./orientation-corrector.js";
 
 const MAX_FILE_SIZE_MB = 15;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-const MAX_PDF_PAGES = 3;
+const MAX_PDF_PAGES = 5;
 const PDF_RENDER_SCALE = 2.5;
 const MAX_CANVAS_PIXELS = 25000000;
 
