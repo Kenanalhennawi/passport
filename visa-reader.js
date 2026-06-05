@@ -4,16 +4,18 @@ import {
   fileToOcrImageDataUrls
 } from "./image-processor.js";
 
-export async function readVisaDocument(file, onProgress = () => {}) {
+export async function readVisaDocument(file, onProgress = () => {}, options = {}) {
   const warnings = [];
+  const { pageNumbers = [] } = options;
 
   try {
     onProgress(0.02);
 
     const pages = await fileToOcrImageDataUrls(file, {
-      maxPages: 3,
+      maxPages: 5,
       scale: 2.5,
-      correctOrientation: true   // <-- added
+      correctOrientation: true,
+      pageNumbers: pageNumbers
     });
 
     if (!pages.length) {
