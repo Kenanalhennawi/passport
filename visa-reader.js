@@ -17,6 +17,10 @@ export async function readVisaDocument(file, onProgress = () => {}, options = {}
   correctOrientation: true,
   pageNumbers
 });
+    const actualPageNumbers = pageNumbers.length
+  ? pageNumbers
+  : pages.map((_, index) => index + 1);
+    
 
     if (!pages.length) {
       throw new Error("No readable image or PDF page was found.");
@@ -41,7 +45,7 @@ export async function readVisaDocument(file, onProgress = () => {}, options = {}
       const data = parseUniversalDocument(ocrText, documentType, classification);
 
       attempts.push({
-        pageNumber: i + 1,
+        pageNumber: actualPageNumbers[i] || i + 1,
         processedImage,
         ocrText,
         classification,
