@@ -1,3 +1,4 @@
+// passport-reader.js
 import {
   preprocessImageForOcr,
   fileToOcrImageDataUrls
@@ -11,7 +12,8 @@ export async function readPassport(file, onProgress = () => {}) {
 
     const pages = await fileToOcrImageDataUrls(file, {
       maxPages: 3,
-      scale: 2.7
+      scale: 2.7,
+      correctOrientation: true   // <-- added
     });
 
     if (!pages.length) {
@@ -29,7 +31,7 @@ export async function readPassport(file, onProgress = () => {}) {
 
       const pageImage = pages[i];
 
-      const fullImage = await preprocessImageForOcr(pageImage);
+      const fullImage = await preprocessImageForOcr(pageImage, { correctOrientation: true });
 
       onProgress(pageProgressStart + pageProgressRange * 0.15);
 
@@ -148,6 +150,10 @@ async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
 }
 
 async function cropMrzZoneFromDataUrl(imageDataUrl) {
+  // Apply orientation correction before cropping
+  if (window.PVV?.OrientationCorrector?.correctOrientation) {
+    imageDataUrl = await window.PVV.OrientationCorrector.correctOrientation(imageDataUrl);
+  }
   const image = await loadImageFromDataUrl(imageDataUrl);
 
   const canvas = document.createElement("canvas");
