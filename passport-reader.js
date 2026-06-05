@@ -17,6 +17,10 @@ export async function readPassport(file, onProgress = () => {}, options = {}) {
       correctOrientation: true,
       pageNumbers: pageNumbers
     });
+    const actualPageNumbers = pageNumbers.length
+  ? pageNumbers
+  : pages.map((_, index) => index + 1);
+    
 
     if (!pages.length) {
       throw new Error("No readable image or PDF page was found.");
@@ -66,7 +70,7 @@ export async function readPassport(file, onProgress = () => {}, options = {}) {
 
       attempts.push({
         pageIndex: i,
-        pageNumber: i + 1,
+        pageNumber: actualPageNumbers[i] || i + 1,
         fullImage,
         mrzImage,
         fullText,
