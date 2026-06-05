@@ -34,12 +34,13 @@ export async function fileToOcrImageDataUrls(file, options = {}) {
     throw new Error("No file selected.");
   }
 
-  const maxPages = options.maxPages || 3;
+  const maxPages = options.maxPages || 5;
   const scale = options.scale || 2.5;
   const correctOrientationFlag = options.correctOrientation !== false;
+  const pageNumbers = options.pageNumbers || [];
 
   if (isPdfFile(file)) {
-    return await pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag);
+    return await pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag, pageNumbers);
   }
 
   if (file.type && file.type.startsWith("image/")) {
@@ -54,56 +55,53 @@ function isPdfFile(file) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-async function pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag = true) {
+async function pdfToImageDataUrls(file, maxPages, scale, correctOrientationFlag = true, pageNumbers = []) {
   if (!window.pdfjsLib) {
     throw new Error("PDF engine is not loaded. Check PDF.js script in index.html.");
   }
 
   const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const totalPages = pdf.numPages;
 
-  const pdf = await window.pdfjsLib.getDocument({
-    data: arrayBuffer
-  }).promise;
+  let pagesToProcess = [];
+  if (pageNumbers && pageNumbers.length) {
+    pagesToProcess = pageNumbers
+      .map(p => Number(p))
+      .filter(p => p >= 1 && p <= totalPages && p <= maxPages);
+    pagesToProcess = [...new Set(pagesToProcess)].sort((a,b) => a - b);
+  } else {
+    const limit = Math.min(totalPages, maxPages);
+    for (let i = 1; i <= limit; i++) pagesToProcess.push(i);
+  }
 
-  const totalPages = Math.min(pdf.numPages, maxPages);
+  if (pagesToProcess.length === 0) {
+    throw new Error(`No valid pages selected. PDF has ${totalPages} pages, max allowed ${maxPages}.`);
+  }
+
   const images = [];
-
-  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+  for (const pageNumber of pagesToProcess) {
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale });
-
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
     canvas.width = Math.round(viewport.width);
     canvas.height = Math.round(viewport.height);
-
-    await page.render({
-      canvasContext: ctx,
-      viewport
-    }).promise;
-
+    await page.render({ canvasContext: ctx, viewport }).promise;
     let dataUrl = canvas.toDataURL("image/png", 1);
     if (correctOrientationFlag && window.PVV?.OrientationCorrector?.correctOrientation) {
       dataUrl = await window.PVV.OrientationCorrector.correctOrientation(dataUrl);
     }
     images.push(dataUrl);
   }
-
-  if (!images.length) {
-    throw new Error("PDF does not contain readable pages.");
-  }
-
   return images;
 }
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(new Error("Unable to read file."));
-
     reader.readAsDataURL(file);
   });
 }
@@ -116,12 +114,8 @@ function loadImage(fileOrDataUrl) {
     }
 
     const img = new Image();
-
     img.onload = () => resolve(img);
-
-    img.onerror = () => {
-      reject(new Error("Unable to load image."));
-    };
+    img.onerror = () => reject(new Error("Unable to load image."));
 
     if (typeof fileOrDataUrl === "string") {
       img.src = fileOrDataUrl;
@@ -130,17 +124,14 @@ function loadImage(fileOrDataUrl) {
 
     if (fileOrDataUrl.type && fileOrDataUrl.type.startsWith("image/")) {
       const url = URL.createObjectURL(fileOrDataUrl);
-
       img.onload = () => {
         URL.revokeObjectURL(url);
         resolve(img);
       };
-
       img.onerror = () => {
         URL.revokeObjectURL(url);
         reject(new Error("Unable to load image."));
       };
-
       img.src = url;
       return;
     }
@@ -152,7 +143,6 @@ function loadImage(fileOrDataUrl) {
 function enhanceContrast(ctx, width, height) {
   const imageData = ctx.getImageData(0, 0, width, height);
   const data = imageData.data;
-
   const contrast = 1.18;
   const brightness = 8;
 
