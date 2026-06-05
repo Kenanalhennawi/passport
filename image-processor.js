@@ -32,10 +32,11 @@ export async function fileToOcrImageDataUrls(file, options = {}) {
 
   const maxPages = options.maxPages || MAX_PDF_PAGES;
   const scale = options.scale || PDF_RENDER_SCALE;
+  const pageNumbers = Array.isArray(options.pageNumbers) ? options.pageNumbers : [];
 
   if (isPdfFile(file)) {
     await validatePdfMagic(file);
-    return await pdfToImageDataUrls(file, maxPages, scale);
+    return await pdfToImageDataUrls(file, maxPages, scale, pageNumbers);
   }
 
   if (isImageFile(file)) {
@@ -48,7 +49,6 @@ export async function fileToOcrImageDataUrls(file, options = {}) {
 
   throw new Error("Unsupported file type. Please upload an image or PDF.");
 }
-
 function validateIncomingFile(file) {
   if (!file) {
     throw new Error("No file selected.");
@@ -168,7 +168,7 @@ async function tryCorrectImageOrientation(file) {
   return await fileToDataUrl(file);
 }
 
-async function pdfToImageDataUrls(file, maxPages, scale) {
+async function pdfToImageDataUrls(file, maxPages, scale, pageNumbers = []) {
   if (!window.pdfjsLib) {
     throw new Error("PDF engine is not loaded. Check PDF.js script in index.html.");
   }
@@ -179,10 +179,11 @@ async function pdfToImageDataUrls(file, maxPages, scale) {
     data: arrayBuffer
   }).promise;
 
-  const totalPages = Math.min(pdf.numPages, maxPages);
   const images = [];
 
-  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+const pagesToRender = getPagesToRender(pdf.numPages, maxPages, pageNumbers);
+
+for (const pageNumber of pagesToRender) {
     const page = await pdf.getPage(pageNumber);
     let viewport = page.getViewport({ scale });
 
@@ -217,6 +218,25 @@ async function pdfToImageDataUrls(file, maxPages, scale) {
   }
 
   return images;
+}
+
+function getPagesToRender(totalPdfPages, maxPages, pageNumbers = []) {
+  if (Array.isArray(pageNumbers) && pageNumbers.length) {
+    return pageNumbers
+      .map((page) => Number.parseInt(page, 10))
+      .filter((page) => Number.isFinite(page))
+      .filter((page) => page >= 1 && page <= totalPdfPages)
+      .slice(0, maxPages);
+  }
+
+  const total = Math.min(totalPdfPages, maxPages);
+  const pages = [];
+
+  for (let page = 1; page <= total; page += 1) {
+    pages.push(page);
+  }
+
+  return pages;
 }
 
 function fileToDataUrl(file) {
