@@ -4,16 +4,18 @@ import {
   fileToOcrImageDataUrls
 } from "./image-processor.js";
 
-export async function readPassport(file, onProgress = () => {}) {
+export async function readPassport(file, onProgress = () => {}, options = {}) {
   const warnings = [];
+  const { pageNumbers = [] } = options;
 
   try {
     onProgress(0.03);
 
     const pages = await fileToOcrImageDataUrls(file, {
-      maxPages: 3,
+      maxPages: 5,
       scale: 2.7,
-      correctOrientation: true   // <-- added
+      correctOrientation: true,
+      pageNumbers: pageNumbers
     });
 
     if (!pages.length) {
@@ -150,7 +152,6 @@ async function runLocalOcr(imageDataUrl, onProgress = () => {}) {
 }
 
 async function cropMrzZoneFromDataUrl(imageDataUrl) {
-  // Apply orientation correction before cropping
   if (window.PVV?.OrientationCorrector?.correctOrientation) {
     imageDataUrl = await window.PVV.OrientationCorrector.correctOrientation(imageDataUrl);
   }
