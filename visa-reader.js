@@ -12,11 +12,11 @@ export async function readVisaDocument(file, onProgress = () => {}, options = {}
     onProgress(0.02);
 
     const pages = await fileToOcrImageDataUrls(file, {
-      maxPages: 5,
-      scale: 2.5,
-      correctOrientation: true,
-      pageNumbers: pageNumbers
-    });
+  maxPages: 5,
+  scale: 2.5,
+  correctOrientation: true,
+  pageNumbers
+});
 
     if (!pages.length) {
       throw new Error("No readable image or PDF page was found.");
